@@ -1,0 +1,104 @@
+appId: com.pronoplus.app
+productName: ProNote+
+directories:
+  output: dist
+  buildResources: resources
+
+files:
+  - 'dist/**/*'
+  - 'package.json'
+  - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
+  - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
+  - '!**/node_modules/*.d.ts'
+  - '!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}'
+  - '!.editorconfig'
+  - '!**/._*'
+
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - '**/*'
+
+asar: true
+asarUnpack:
+  - '**/*.node'
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - ia32
+    - target: portable
+      arch:
+        - x64
+        - ia32
+  icon: resources/icon.ico
+  publisherName: ProNote+ Team
+  legalCopyright: 'Copyright © 2026 ProNote+ Contributors'
+  artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ProNote+
+  uninstallDisplayName: ProNote+
+  include: resources/installer.nsh
+  license: LICENSE
+
+linux:
+  target:
+    - AppImage
+    - deb
+    - snap
+  icon: resources/icon.png
+  category: Education
+  maintainer: support@pronote-plus.dev
+  vendor: ProNote+
+  artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
+  desktop:
+    Name: ProNote+
+    Comment: 'Application desktop pour Pronote avec analyse avancée des notes'
+    Categories: Education;Utility;
+    Keywords: pronote;education;grades;school
+
+  appImage:
+    license: LICENSE
+    category: Education
+    synopsis: 'Application desktop pour Pronote'
+
+mac:
+  target:
+    - dmg
+    - zip
+  icon: resources/icon.icns
+  category: public.app-category.education
+  artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: 'resources/entitlements.mac.plist'
+  entitlementsInherit: 'resources/entitlements.mac.plist'
+
+publish:
+  provider: github
+  owner: pronote-plus
+  repo: pronoplus
+  releaseType: release
+
+npmRebuild: false
+buildDependenciesFromSource: true
+
+extraMetadata:
+  main: dist/main/index.js
+
+electronVersion: 30.0.0
+electronDownload:
+  mirror: 'https://github.com/electron/electron/releases/download/v'
+
+nodeGypRebuild: false
+npmArgs:
+  - '--legacy-peer-deps'
