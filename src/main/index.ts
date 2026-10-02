@@ -1,12 +1,14 @@
-import { app, BrowserWindow, ipcMain, safeStorage } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import path from 'path';
-import { initDatabase } from './database';
+import { dbManager } from './database';
 import { setupPronoteHandlers } from './pronote';
 import { setupIPCHandlers } from './ipc';
 
-// Déclaration pour TypeScript
-declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
-declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+// Helper pour obtenir le chemin correct dans l'asar
+function getAssetPath(...paths: string[]): string {
+  const dir = __dirname.startsWith('app.asar') ? path.dirname(__dirname) : __dirname;
+  return path.join(dir, ...paths);
+}
 
 class Main {
   private mainWindow: BrowserWindow | null = null;
@@ -17,7 +19,7 @@ class Main {
     this.setupEventHandlers();
     
     // Initialiser la base de données
-    await initDatabase();
+    await dbManager.init();
     
     console.log('ProNote+ démarré avec succès');
   }
@@ -33,17 +35,13 @@ class Main {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        preload: path.join(__dirname, 'preload.js')
-      },
-      icon: path.join(__dirname, '../../resources/icon.png')
+        preload: getAssetPath('main', 'preload.js')
+      }
     });
 
-    // Charger l'application React
-    if (MAIN_WINDOW_WEBPACK_ENTRY) {
-      this.mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
-    } else {
-      this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
-    }
+    // Charger l'application React avec le bon chemin
+    const htmlPath = getAssetPath('renderer', 'index.html');
+    this.mainWindow.loadFile(htmlPath);
 
     // Ouvrir DevTools en développement
     if (process.env.NODE_ENV === 'development') {
