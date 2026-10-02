@@ -17,7 +17,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  HeatMap
+  Area, AreaChart
 } from 'recharts';
 import toast from 'react-hot-toast';
 

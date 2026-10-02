@@ -1,6 +1,6 @@
 import { ipcMain, Notification, nativeImage, BrowserWindow } from 'electron';
 import { dbManager } from './database';
-import { createIcs } from 'ics';
+import { createEvents } from 'ics';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
@@ -231,7 +231,7 @@ export function setupIPCHandlers(): void {
       location: event.location
     }));
 
-    const { error, value } = createIcs(icsEvents);
+    const { error, value } = createEvents(icsEvents);
     
     if (error) {
       throw new Error(`Erreur lors de la création du fichier ICS: ${error}`);
