@@ -1,19 +1,6 @@
 import { ipcMain, safeStorage } from 'electron';
-import { Pronote } from 'pawnote';
-
-// Type aliases for compatibility with pawnote v1.6.2
-type PronoteApiAccount = any;
-type PronoteApiLoginInformations = {
-  username: string;
-  password: string;
-};
-type PronoteApiGrades = any;
-type PronoteApiHomeworks = any;
-type PronoteApiTimetable = any;
-type PronoteApiAbsences = any;
-type PronoteApiMessages = any;
-type PronoteApiInfos = any;
-
+import { PronoteApi } from 'pawnote';
+import type { PronoteApiAccount, PronoteApiLoginInformations, PronoteApiGrades, PronoteApiHomeworks, PronoteApiTimetable, PronoteApiAbsences, PronoteApiMessages, PronoteApiInfos } from 'pawnote';
 import { dbManager, CredentialsRecord } from './database';
 
 interface LoginCredentials {

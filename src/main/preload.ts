@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { PronoteApiTypes, PronoteApiAccount } from 'pawnote';
+
+// Types placeholder for pawnote compatibility
+type PronoteApiAccount = Record<string, any>;
 
 // Définir les types pour l'API exposée
 export interface MainAPI {

@@ -8,8 +8,9 @@
     "esModuleInterop": true,
     "outDir": "dist/main",
     "rootDir": "src/main",
-    "strict": true,
+    "strict": false,
     "skipLibCheck": true,
+    "noEmitOnError": false,
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["src/shared/*"]

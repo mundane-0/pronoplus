@@ -642,3 +642,10 @@ class DatabaseManager {
 }
 
 export default DatabaseManager;
+
+// Singleton instance
+export const dbManager = new DatabaseManager();
+
+export function initDatabase(): Promise<void> {
+  return dbManager.init();
+}

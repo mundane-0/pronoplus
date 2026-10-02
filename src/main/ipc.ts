@@ -158,7 +158,7 @@ export function setupIPCHandlers(): void {
     
     let csv = 'Matière,Intitulé,Note,Barème,Coefficient,Moyenne classe,Min,Max,Date,Professeur\n';
     
-    grades.forEach(grade => {
+    grades.forEach((grade: any) => {
       csv += `"${grade.subject}","${grade.title}",${grade.grade},${grade.scale},${grade.coefficient},${grade.classAverage},${grade.min},${grade.max},"${grade.date}","${grade.teacher}"\n`;
     });
 
@@ -172,7 +172,7 @@ export function setupIPCHandlers(): void {
     const doc = new PDFDocument();
     const chunks: Buffer[] = [];
 
-    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     
     // En-tête
     doc.fontSize(20).text('Bulletin de Notes ProNote+', { align: 'center' });
@@ -202,7 +202,7 @@ export function setupIPCHandlers(): void {
     
     // Données
     doc.font('Helvetica');
-    grades.forEach(grade => {
+    grades.forEach((grade: any) => {
       doc.text(grade.subject, 50, yPosition);
       doc.text(`${grade.grade}/${grade.scale}`, 200, yPosition);
       doc.text(grade.coefficient.toString(), 250, yPosition);
@@ -222,9 +222,9 @@ export function setupIPCHandlers(): void {
 
   ipcMain.handle('export-calendar-ics', async (_, events: CalendarEvent[]) => {
     const icsEvents = events.map(event => ({
-      start: event.startDate.split('T')[0].split('-') as [number, number, number],
+      start: event.startDate.split('T')[0].split('-').map(Number).slice(0,3) ,
       startInputType: 'utc' as const,
-      end: event.endDate.split('T')[0].split('-') as [number, number, number],
+      end: event.endDate.split('T')[0].split('-').map(Number).slice(0,3) ,
       endInputType: 'utc' as const,
       title: event.title,
       description: event.description,
