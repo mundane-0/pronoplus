@@ -5,7 +5,8 @@ directories:
   buildResources: resources
 
 files:
-  - 'dist/**/*'
+  - 'dist/renderer/**/*'
+  - 'dist/main/**/*'
   - 'package.json'
   - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
   - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
@@ -13,6 +14,9 @@ files:
   - '!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}'
   - '!.editorconfig'
   - '!**/._*'
+  - '!dist/builder-debug.yml'
+  - '!dist/linux-unpacked/**/*'
+  - '!dist/renderer/src/renderer/index.html'
 
 extraResources:
   - from: resources
