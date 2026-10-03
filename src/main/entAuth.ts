@@ -282,6 +282,7 @@ export function openEntLoginWindow(
 
       if (/erreur-PRONOTE|pageserreur|AccesRefuse/i.test(html)) {
         entLog("Pronote renvoie sa page d'erreur : l'ENT n'a pas créé de session");
+        clearInterval(battement);
         finish({ success: false, reason: 'error-page' });
         return;
       }
@@ -292,10 +293,25 @@ export function openEntLoginWindow(
       entLog(
         `identité ENT obtenue (espace ${identity.accountTypeID}, session ${identity.sessionID})`
       );
+      clearInterval(battement);
+      traceLog(
+        `fenêtre ENT : identité obtenue (espace ${identity.accountTypeID}, session ${identity.sessionID})`
+      );
       finish({ success: true, identity, cookies: await cookiesPronote() });
     };
 
+    /**
+     * Toute la conversation avec l'ENT doit laisser une trace, y compris dans
+     * une application installée : c'est le seul endroit où l'on voit *où* la
+     * chaîne s'arrête. `entLog` ne s'écrit qu'en développement, et une
+     * installation est `app.isPackaged` — le dialogue entier était donc
+     * invisible, et l'échec ne laissait que sa première ligne.
+     */
+    const suivre = (etape: string, url: string) =>
+      traceLog(`${etape} : ${urlCourt(url)}`);
+
     entWindow.webContents.on('will-redirect', (_event, url) => {
+      suivre('redirection', url);
       const onPronote = isPronoteUrl(url, pronoteHost);
       if (onPronote !== onEntPage) {
         roundTrips++;
@@ -303,6 +319,7 @@ export function openEntLoginWindow(
         entLog(`${onPronote ? 'retour sur Pronote' : 'passage sur l ENT'} (${roundTrips})`);
         if (roundTrips > MAX_ROUND_TRIPS) {
           entLog('boucle ENT/Pronote : arrêt pour ne pas surcharger le serveur');
+          clearInterval(battement);
           entWindow.destroy();
           finish({ success: false, reason: 'loop' });
         }
@@ -311,26 +328,60 @@ export function openEntLoginWindow(
       // CAS. Recharger l'URL de base détruirait ce ticket.
     });
 
-    const onPage = (_event: unknown, url: string) => {
+    const onPage = (event: unknown, url: string) => {
+      suivre('page', url);
       if (!isPronoteUrl(url, pronoteHost)) return;
       // Le contenu est injecté par Pronote après coup : on laisse passer.
       setTimeout(inspect, 600);
     };
 
     entWindow.webContents.on('did-navigate', onPage);
-    entWindow.webContents.on('did-frame-finish-load', (_e, isMain) => {
-      if (isMain) setTimeout(inspect, 600);
+
+    entWindow.webContents.on('did-fail-load', (_e, code, description, url) => {
+      // -3 = annulation par une redirection suivante : sans importance.
+      if (code === -3) return;
+      traceLog(`chargement impossible (${code} ${description}) : ${urlCourt(url)}`);
     });
 
+    entWindow.webContents.on('did-frame-finish-load', (_e, isMain) => {
+      if (!isMain) return;
+      const courante = entWindow.webContents.getURL();
+      if (courante) suivre('chargée', courante);
+      setTimeout(inspect, 600);
+    });
+
+    /**
+     * Sans battement, « l'utilisateur n'a rien fait » et « la chaîne est
+     * bloquée » produisent le même journal vide. On note où en est la fenêtre
+     * toutes les 15 s — et uniquement si elle ne bouge pas.
+     */
+    let dernierMouvements = '';
+    const battement = setInterval(() => {
+      if (settled || entWindow.isDestroyed()) return;
+      const courante = entWindow.webContents.getURL();
+      if (!courante) return;
+      if (courante !== dernierMouvements) {
+        dernierMouvements = courante;
+        return;
+      }
+      traceLog(`toujours sur ${urlCourt(courante)}`);
+    }, 15_000);
+
     entWindow.on('closed', () => {
+      clearInterval(battement);
       entLog('fenêtre ENT fermée');
       finish({ success: false, reason: 'cancelled' });
     });
 
-    entWindow.loadURL(startUrl).catch((e: Error) => {
-      entLog(`ouverture impossible : ${e.message}`);
-      finish({ success: false, reason: 'error-page' });
-    });
+    entWindow
+      .loadURL(startUrl)
+      .then(() => suivre('ouverte', startUrl))
+      .catch((e: Error) => {
+        clearInterval(battement);
+        entLog(`ouverture impossible : ${e.message}`);
+        traceLog(`ouverture impossible : ${e.message}`);
+        finish({ success: false, reason: 'error-page' });
+      });
   });
 }
 
@@ -339,6 +390,22 @@ function isPronoteUrl(url: string, pronoteHost: string): boolean {
     return new URL(url).hostname.toLowerCase() === pronoteHost.toLowerCase();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Hôte et chemin d'une URL, sans la requête.
+ *
+ * La requête est précisément ce qu'il ne faut pas journaliser : elle porte le
+ * ticket CAS, le jeton d'identification, et les identifiants de session. Or on
+ * n'a besoin que de savoir *où* la fenêtre en est.
+ */
+function urlCourt(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname}`;
+  } catch {
+    return url.slice(0, 60);
   }
 }
 
