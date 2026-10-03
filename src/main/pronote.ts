@@ -919,13 +919,30 @@ class PronoteManager {
       'login-ent-window',
       async (_event, url: string, entUrl: string | null, accountPath: string) => {
         const base = (url || '').trim().replace(/\/+$/, '');
-        // Sans ENT déclaré, on ouvre la page mobile de Pronote : certains
-        // établissements y redirigent eux-mêmes vers leur portail.
-        const startUrl = entUrl || `${base}/${accountPath || 'mobile.eleve.html'}`;
+        const chemin = accountPath || 'mobile.eleve.html';
+
+        /**
+         * On ouvre la page mobile de Pronote, jamais l'adresse du portail.
+         *
+         * Le portail n'est pas un point d'entrée. C'est Pronote qui redirige
+         * vers le CAS, et cette redirection lui passe le *service* — l'adresse
+         * à laquelle le CAS doit renvoyer le ticket. Ouverte à la racine, la
+         * fenêtre s'authentifie et le CAS répond alors :
+         *
+         *     Log In Successful — Hello <nom>, we cannot direct you to the
+         *     page requested.
+         *
+         * parce qu'il n'a reçu aucun service. L'authentification est réussie,
+         * et le ticket part dans le vide.
+         *
+         * pawnote construit la même adresse : `<base>/<chemin>?fd=1`.
+         */
+        const startUrl = `${base}/${chemin}?fd=1`;
 
         traceReset();
         traceLog(
-          `ouverture de la fenêtre ENT depuis ${redactSecrets(base)} (${redactSecrets(startUrl)})`
+          `ouverture de la fenêtre ENT depuis ${redactSecrets(base)} ` +
+            `(${redactSecrets(startUrl)}${entUrl ? ', portail déclaré ' + redactSecrets(entUrl) : ''})`
         );
 
         const result = await openEntLoginWindow(

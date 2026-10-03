@@ -60,6 +60,11 @@ const pageStart = (base) => `<!doctype html><html><head><meta charset="utf-8"></
 <form action="${base}/pronote/appelfonction/6/915730/1"></form>
 </body></html>`;
 
+/** Racine de l'espace mobile, sur l'hote « Pronote ». */
+function basePronote() {
+  return `http://${PRONOTE}:${PORT}/pronote`;
+}
+
 /** URL absolue d'une page du portail, sur l'hote « ENT ». */
 function racineEnt(p) {
   return `http://${CAS}:${PORT}${p}`;
@@ -72,8 +77,24 @@ function demarrer() {
       const p = url.pathname;
 
       // 1. La page mobile, sans ticket, renvoie vers le portail de l'académie.
+      // Le ticket revient sur la page mobile : Pronote le traite alors comme une
+      // demande d'authentification, pose son CASTGC, puis sert la session.
+      if (p === '/pronote/mobile.eleve.html' && url.searchParams.has('ticket')) {
+        res.writeHead(302, {
+          'Set-Cookie': 'CASTGC=TGT-portail-local; Path=/pronote; HttpOnly',
+          Location: `${racine()}/mobile.eleve.html?identifiant=JETON-ENT`
+        });
+        return res.end();
+      }
+
       if (p === '/pronote/mobile.eleve.html' && !url.searchParams.has('identifiant')) {
-        res.writeHead(302, { Location: `http://${CAS}:${PORT}/cas/login` });
+        // Comme Pronote : le service — l'adresse ou le ticket doit revenir — est
+        // passe au CAS. C'est lui qui permet au CAS de rediriger a la fin.
+        res.writeHead(302, {
+          Location:
+            `http://${CAS}:${PORT}/cas/login?service=` +
+            encodeURIComponent(`${basePronote()}/mobile.eleve.html`)
+        });
         return res.end();
       }
 
@@ -84,11 +105,27 @@ function demarrer() {
       // qui rejoue la session obtenue par la fenetre ; la fenetre, elle, arrive
       // sans cookie et doit choisir.
       const dejaValide = /CASTGC=/.test(req.headers.cookie || '');
+      const service = url.searchParams.get('service') || '';
+      const avecTicket = (cible) =>
+        `${cible || `${basePronote()}/mobile.eleve.html`}` +
+        `?p=daCas&ticket=ST-1234-abcdefgh`;
+
+      // Sans service, le CAS authentifie et ne sait ou aller. C'est le refus
+      // exact du portail de l'utilisateur : « Log In Successful — Hello <nom>,
+      // we cannot direct you to the page requested. »
+      if (p === '/cas/login' && !service && !dejaValide) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        return res.end(
+          '<html><body><h1>Log In Successful</h1>' +
+            '<p>we cannot direct you to the page requested.</p></body></html>'
+        );
+      }
 
       if (p === '/cas/login' && !url.searchParams.has('selection') && !dejaValide) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         return res.end(
           `<html><body><form class="cas__wayf-form" method="get" action="${racineEnt('/cas/login')}">
+             <input type="hidden" name="service" value="${service}">
              <input type="radio" name="selection" value="EDU_parent_eleve"> Eleve ou parent avec Educonnect
              <input type="radio" name="selection" value="AAA_enseignant"> Enseignant
              <input type="radio" name="selection" value="ENT"> Invite
@@ -97,21 +134,20 @@ function demarrer() {
         );
       }
 
-      // 2b. Profil « eleve » choisi : le portail pose SON cookie et renvoie
-      //     vers la selection de profil EduConnect.
+      // Client deja valide : le ticket part directement vers le service.
       if (p === '/cas/login' && dejaValide) {
-        res.writeHead(302, {
-          Location:
-            `http://${PRONOTE}:${PORT}/pronote/pronote-auth.html` +
-            `?p=daCas&ticket=ST-1234-abcdefgh`
-        });
+        res.writeHead(302, { Location: avecTicket(service) });
         return res.end();
       }
 
+      // 2b. Profil « eleve » choisi : le portail pose SON cookie et renvoie
+      //     vers la selection de profil EduConnect, service en memoire.
       if (p === '/cas/login' && url.searchParams.get('selection') === 'EDU_parent_eleve') {
         res.writeHead(302, {
           'Set-Cookie': 'ENT_SECRET=secret-du-portail; Path=/; HttpOnly',
-          Location: racineEnt('/educonnect/profil')
+          Location:
+            racineEnt('/educonnect/profil') +
+            (service ? `?service=${encodeURIComponent(service)}` : '')
         });
         return res.end();
       }
@@ -121,26 +157,20 @@ function demarrer() {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         return res.end(
           `<html><body>
-             <form method="post" action="${racineEnt('/educonnect/choix')}">
-               <input type="hidden" name="profil" value="eleve">
+             <form method="get" action="${racineEnt('/educonnect/choix')}">
+               <input type="hidden" name="service" value="${service}">
+               <button type="submit" name="profil" value="eleve"
+                       onclick="selectionProfil('eleve')">Eleve</button>
+               <button type="submit" name="profil" value="responsable"
+                       onclick="selectionProfil('responsable')">Responsable d'eleve</button>
              </form>
-             <button onclick="selectionProfil('eleve')">Eleve</button>
-             <button onclick="selectionProfil('responsable')">Responsable d'eleve</button>
-             <script>function selectionProfil(p){
-               document.forms[0].elements.profil.value = p;
-               document.forms[0].submit();
-             }</script>
            </body></html>`
         );
       }
 
-      // 2d. Profil valide : EduConnect renvoie enfin un ticket CAS a Pronote.
+      // 2d. Profil valide : EduConnect renvoie enfin le ticket CAS au service.
       if (p === '/educonnect/choix') {
-        res.writeHead(302, {
-          Location:
-            `http://${PRONOTE}:${PORT}/pronote/pronote-auth.html` +
-            `?p=daCas&ticket=ST-1234-abcdefgh`
-        });
+        res.writeHead(302, { Location: avecTicket(service) });
         return res.end();
       }
 
@@ -208,6 +238,29 @@ app.whenReady().then(async () => {
   verifie(
     'profil EduConnect choisi',
     /profil ÉduConnect choisi automatiquement/.test(texte)
+  );
+  // Le ticket doit revenir au service demande. S'il ne revient pas, le CAS
+  // authentifie et ne sait ou aller — « we cannot direct you to the page
+  // requested ».
+  verifie(
+    'le ticket revient a Pronote',
+    /redirection : (localhost|127\.0\.0\.1):\d+\/pronote\/mobile\.eleve\.html/.test(texte),
+    'le service a ete conserve'
+  );
+
+  // Le piege exact du portail de l'utilisateur : ouvrir la fenetre sur la racine
+  // du CAS retire le service, et la page de refus s'affiche alors.
+  // Cette fenetre ne se ferme jamais d'elle-meme : on lui laisse quelques
+  // secondes, puis on abandonne plutot que d'attendre que l'utilisateur
+  // ferme une fenetre.
+  const sansService = await Promise.race([
+    openEntLoginWindow(null, racineEnt('/cas/login'), base),
+    new Promise((r) => setTimeout(() => r({ success: false, reason: 'abandon' }), 12_000))
+  ]);
+  verifie(
+    'sans service, lafenetre echoue',
+    sansService.success === false,
+    `raison=${sansService.reason ?? '-'}`
   );
   verifie('numeroJeton lu', res.identity?.username === 'A12', res.identity?.username ?? '-');
   verifie('cleJeton lu', res.identity?.token === 'cle-de-test-0123456789');

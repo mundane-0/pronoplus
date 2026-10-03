@@ -302,7 +302,18 @@ export function openEntLoginWindow(
       const ou = entWindow.webContents.getURL();
       if (pagesFranchies.has(ou)) return;
 
-      // Menu de profil d'un CAS departemental : un simple GET, donc une URL.
+      // Menu de profil d'un CAS departemental.
+      //
+      // Le formulaire est soumis tel quel, jamais converti en URL : il porte
+      // des champs caches — le `service`, c'est-a-dire l'adresse a laquelle le
+      // CAS doit renvoyer le ticket. Fabriquer une URL a la main les perdait,
+      // et le CAS répondait alors « we cannot direct you to the page
+      // requested » apres avoir authentifie l'utilisateur : c'est exactement le
+      // defaut que l'application doit corriger, pas reproduire.
+      //
+      // La detection ne soumet rien, et la soumission est lancee sans attendre
+      // son resultat : naviguer detruit le contexte qui execute le script, et
+      // `executeJavaScript` rejetterait alors sur une reussite.
       const menu = await entWindow.webContents.executeJavaScript(
         `(() => {
           const f = Array.from(document.querySelectorAll('form'))
@@ -311,46 +322,58 @@ export function openEntLoginWindow(
           const wanted = /el[eè]ve|etudiant|étudiant|educonnect|edugouv|apprenant/i;
           const bon = Array.from(f.querySelectorAll('input[name=selection]'))
             .find(i => wanted.test(i.value || ''));
-          if (!bon) return '';
-          const methode = (f.method || 'get').toLowerCase();
-          const action = f.action || location.href;
-          if (methode === 'get') {
-            return 'GET ' + action + (action.includes('?') ? '&' : '?') +
-              'selection=' + encodeURIComponent(bon.value) + '&submit=Confirm';
-          }
-          bon.checked = true;
-          f.submit();
-          return 'POST ' + action + ' selection=' + bon.value;
+          return bon ? bon.value : '';
         })()`
       );
       if (typeof menu === 'string' && menu) {
         pagesFranchies.add(ou);
         franchissements++;
-        traceLog(`menu de profil du portail franchi : ${redactSecrets(menu)}`);
-        if (menu.startsWith('GET ')) {
-          entWindow.webContents.loadURL(menu.slice(4)).catch(() => undefined);
-        }
+        traceLog(`menu de profil du portail franchi : selection=${redactSecrets(menu)}`);
+        entWindow.webContents
+          .executeJavaScript(
+            `(() => {
+              const f = Array.from(document.querySelectorAll('form'))
+                .find(f => f.querySelectorAll('input[name=selection]').length > 1);
+              if (!f) return;
+              const wanted = /el[eè]ve|etudiant|étudiant|educonnect|edugouv|apprenant/i;
+              const bon = Array.from(f.querySelectorAll('input[name=selection]'))
+                .find(i => wanted.test(i.value || ''));
+              if (!bon) return;
+              bon.checked = true;
+              // f.submit() ne fonctionne pas ici : le formulaire porte un
+              // champ nomme submit, qui masque la methode du meme nom. On
+              // passe donc par le prototype.
+              HTMLFormElement.prototype.submit.call(f);
+            })()`
+          )
+          .catch(() => undefined);
         return;
       }
 
       // Choix de profil EduConnect : un bouton qui appelle selectionProfil('eleve').
-      // Pas de regexp ici : dans un gabarit de chaine, `\(` vaut `(` et `\s` vaut
+      // Pas de regexp ecrit dans un gabarit : `\(` y vaut `(` et `\s` y vaut
       // `s`, ce qui produit une regexp malformee et une erreur de syntaxe
-      // silencieuse dans la page. Le test porte donc sur le texte de l'appel,
-      // sans caractere a echapper.
+      // silencieuse dans la page.
       const profil = await entWindow.webContents.executeJavaScript(
         `(() => {
           const b = Array.from(document.querySelectorAll('button,a,[onclick]'))
             .find(e => /eleve/i.test(e.getAttribute('onclick') || ''));
-          if (!b) return '';
-          b.click();
-          return 'profil eleve';
+          return b ? (b.getAttribute('onclick') || '').slice(0, 40) : '';
         })()`
       );
       if (typeof profil === 'string' && profil) {
         pagesFranchies.add(ou);
         franchissements++;
         traceLog(`profil ÉduConnect choisi automatiquement : ${profil}`);
+        entWindow.webContents
+          .executeJavaScript(
+            `(() => {
+              const b = Array.from(document.querySelectorAll('button,a,[onclick]'))
+                .find(e => /eleve/i.test(e.getAttribute('onclick') || ''));
+              if (b) b.click();
+            })()`
+          )
+          .catch(() => undefined);
         return;
       }
 
