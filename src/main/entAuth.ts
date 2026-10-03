@@ -196,6 +196,29 @@ export function parseStartCall(html: string): Record<string, unknown> | null {
   }
 }
 
+/**
+ * Décrit l'objet `Start({...})` sans jamais en recopier les valeurs.
+ *
+ * `numeroJeton` et `cleJeton` sont des valeurs d'authentification : elles ne
+ * doivent pas être écrites sur disque, ni journalisées, ni même leur taille
+ * exacte. En revanche, savoir *quelles* clés l'ENT livre, et de quel type,
+ *change tout : c'est la différence entre « le portail donne bien le jeton » et
+ * « le portail donne une session, et le jeton attendra une autre page ».
+ */
+function decrireStart(page: Record<string, unknown> | null): string {
+  if (!page) return 'aucun objet Start()';
+  const clefs = Object.keys(page).sort();
+  if (clefs.length === 0) return 'objet Start() vide';
+  return clefs
+    .map((k) => {
+      const v = (page as Record<string, unknown>)[k];
+      const type =
+        typeof v === 'number' ? 'nombre' : typeof v === 'string' ? 'texte' : Array.isArray(v) ? 'liste' : typeof v;
+      return `${k}:${type}`;
+    })
+    .join(', ');
+}
+
 /** Déduit une identité Pronote utilisable depuis l'objet `Start({...})`. */
 export function identityFromStartCall(
   page: Record<string, unknown> | null,
@@ -482,7 +505,9 @@ export function openEntLoginWindow(
         return;
       }
 
-      const identity = identityFromStartCall(parseStartCall(html), 6);
+      const objetStart = parseStartCall(html);
+      if (objetStart) traceLog(`Start() livré : ${decrireStart(objetStart)}`);
+      const identity = identityFromStartCall(objetStart, 6);
       if (!identity) {
         // Le portail de l'établissement ne sert pas l'appel Start tant qu'on
         // n'a pas choisi l'application Pronote. On note alors les liens vers
@@ -704,6 +729,7 @@ export function createSessionFetcher(
     const statut = readStatus(reponse);
 
     diagnostiquerPageHtml(url, corps);
+    diagnostiquerDonnees(url, corps);
 
     traceLog(
       `${options?.method ?? 'GET'} ${redactSecrets(url)}\n` +
@@ -750,6 +776,37 @@ function diagnostiquerPageHtml(url: string, corps: string): void {
   if (ou < 0) {
     traceLog(`  fin de la page : ${redactSecrets(corps.slice(-400))}`);
   }
+}
+
+/**
+ * Note les clés de `donnees` dans une réponse `appelfonction`.
+ *
+ * pawnote lit cette réponse champ par champ — il attend de `Authentification`
+ * une clé AES chiffrée et un jeton applicatif, et échoue si l'un manque, par
+ * une message qui ne dit rien de la réponse. Les NOMS des clés, eux, ne sont
+ * pas secrets et suffisent à voir ce que le serveur a renvoyé et ce qui
+ * manque. Aucune valeur n'est écrite.
+ */
+function diagnostiquerDonnees(url: string, corps: string): void {
+  if (!/\/appelfonction\//.test(url)) return;
+  let donnees: Record<string, unknown>;
+  try {
+    const o = JSON.parse(corps);
+    donnees = (o?.dataSec?.data ?? o?.donnees) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+  if (!donnees || typeof donnees !== 'object') return;
+
+  const nom = (() => {
+    const m = /appelfonction\/\d+\/\d+/.exec(url);
+    return m ? m[0] : 'appelfonction';
+  })();
+  const cles = Object.keys(donnees).sort();
+  traceLog(
+    `${nom} → données : ` +
+      (cles.length === 0 ? 'aucune' : cles.join(', '))
+  );
 }
 
 /**
