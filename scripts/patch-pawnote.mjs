@@ -234,6 +234,12 @@ const PATCHS = [
     'enConnexionAuto:!1,enConnexionAppliMobile:!1,demandeConnexionAuto:!1,demandeConnexionAppliMobile:s.requestFromQRCode,demandeConnexionAppliMobileJeton:s.requestFromQRCode,uuidAppliMobile:s.requestFromQRCode?s.deviceUUID:"",loginTokenSAV:""',
     1
   ],
+  [
+    '23. Acces : 1 vaut autorisation accordee, non mot de passe errone',
+    'if("number"==typeof r.donnees.Acces&&0!==r.donnees.Acces){',
+    'if("number"==typeof r.donnees.Acces&&0!==r.donnees.Acces&&1!==r.donnees.Acces){',
+    1
+  ]
 ];
 
 // 1) On corrige le bundle ESM : c'est le seul qui soit lisible, et tous les
