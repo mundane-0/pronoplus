@@ -1,5 +1,6 @@
 import { BrowserWindow, app } from 'electron';
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { defaultPawnoteFetcher } from 'pawnote';
 import type { PawnoteFetcher } from 'pawnote';
@@ -59,6 +60,27 @@ export function tracePath(): string | null {
   return TRACE_FILE;
 }
 
+/**
+ * Empreinte du code réellement en train de s'exécuter.
+ *
+ * Un journal sans cette ligne ne dit pas grand-chose : on ne sait plus si
+ * l'application vient d'un déploiement ou d'une copie laissée de côté. Les
+ * deux fichiers qui décident de la connexion ENT sont donc hachés à chaque
+ * tentative. Toute modification de `pronote.ts` ou de `entAuth.ts` change la
+ * valeur, ce qui suffit à distinguer deux déploiements.
+ */
+export function traceBuild(): string {
+  try {
+    const h = createHash('sha256');
+    for (const nom of ['entAuth.js', 'pronote.js']) {
+      h.update(readFileSync(join(__dirname, nom)));
+    }
+    return `${app.getName()} ${app.getVersion()} build ${h.digest('hex').slice(0, 8)}`;
+  } catch {
+    return `${app.getName()} ${app.getVersion()} build inconnu`;
+  }
+}
+
 /** Efface la tentative précédente : le journal ne décrit qu'un essai. */
 export function traceReset(): void {
   try {
@@ -69,6 +91,15 @@ export function traceReset(): void {
 }
 
 /** Remplace les jetons d'authentification par une valeur neutre. */
+/** Le journal, pour l'afficher ou le copier. Vide s'il n'a jamais rien eu a dire. */
+export function traceRead(): string {
+  try {
+    return readFileSync(TRACE_FILE, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 export function redactSecrets(text: string): string {
   return text
     .replace(/(ticket|jeton|cleJeton|numeroJeton|identifiant|token|session|code)=([^&\s]+)/gi, '$1=***')

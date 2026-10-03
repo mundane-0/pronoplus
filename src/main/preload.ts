@@ -211,6 +211,7 @@ contextBridge.exposeInMainWorld('mainAPI', {
     }>,
   loginEnt: (credentials: LoginCredentials) =>
     ipcRenderer.invoke('login-ent', credentials),
+  diagnosticEnt: () => ipcRenderer.invoke('diagnostic-ent'),
   loginQrCode: (payload: any) => ipcRenderer.invoke('login-qrcode', payload),
   getSavedCredentials: () => ipcRenderer.invoke('get-saved-credentials'),
   deleteSavedCredentials: () => ipcRenderer.invoke('delete-saved-credentials'),

@@ -56,6 +56,34 @@ const Login = () => {
    * l'utilisateur ; l'application récupère alors son jeton et se connecte
    * toute seule. Ni l'identifiant ni le mot de passe Pronote ne sont demandés.
    */
+  /**
+   * Toute connexion ENT qui echoue laisse une trace sur le disque, mais une
+   * trace sur disque ne sert a rien si elle demande d'ouvrir un explorateur
+   * pour la trouver. On la met donc directement dans le presse-papier, et on
+   * dit ou elle se trouve : un echec devient alors rapportable en un clic.
+   */
+  const echecEnt = async (message: string) => {
+    toast.error(message);
+    try {
+      const d: any = await (window as any).mainAPI.diagnosticEnt();
+      if (!d?.texte) return;
+      const corps =
+        `ProNote+ — diagnostic de connexion ENT\n${d.chemin ?? ''}\n\n${d.texte}`;
+      try {
+        await navigator.clipboard.writeText(corps);
+        toast.success('Diagnostic copié dans le presse-papier');
+      } catch {
+        // Le presse-papier peut être refuse par l'environnement. Le fichier
+        // existe dans tous les cas : on dit donc ou il est, plutot que de
+        // laisser l'utilisateur devant une erreur sans suite.
+        toast(`Diagnostic enregistré dans ${d.chemin}`, { icon: '📄' });
+      }
+    } catch {
+      // Seul l'affichage du message d'erreur compte : le diagnostic reste
+      // sur disque, a l'emplacement indique ci-dessus.
+    }
+  };
+
   const handleEntLogin = async () => {
     if (!url.trim()) {
       toast.error("Renseignez l'URL Pronote de votre établissement");
@@ -65,7 +93,7 @@ const Login = () => {
     try {
       const info: any = await (window as any).mainAPI.loginEntOpen(url.trim());
       if (!info.success) {
-        toast.error(info.error || 'Établissement introuvable');
+        await echecEnt(info.error || 'Établissement introuvable');
         return;
       }
 
@@ -76,14 +104,19 @@ const Login = () => {
       );
 
       if (!opened.success) {
-        toast.error(
-          opened.reason === 'cancelled'
-            ? 'Connexion à l\'ENT annulée'
-            : "L'ENT n'a pas créé de session Pronote. Reconnecte-toi à l'ENT, puis réessaie."
-        );
+        if (opened.reason === 'cancelled') {
+          // Une annulation est un choix, pas une panne : rien à diagnostiquer.
+          toast.error('Connexion à l\'ENT annulée');
+        } else {
+          await echecEnt(
+            "L'ENT n'a pas créé de session Pronote. Reconnecte-toi à l'ENT, puis réessaie."
+          );
+        }
         return;
       }
 
+      // `loginEnt` leve en cas d Echec : le message qu il porte est deja
+      // libelle en francais par le processus principal.
       await loginEnt({
         url: url.trim(),
         username: username.trim(),
@@ -93,7 +126,7 @@ const Login = () => {
       toast.success('Connexion réussie !');
       navigate('/');
     } catch (e: any) {
-      toast.error(e.message || "Erreur de connexion via l'ENT");
+      await echecEnt(e.message || "Erreur de connexion via l'ENT");
     } finally {
       setEntBusy(false);
     }

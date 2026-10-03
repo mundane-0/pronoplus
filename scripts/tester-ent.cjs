@@ -212,8 +212,14 @@ app.whenReady().then(async () => {
   PORT = serveur.address().port;
   console.log(`portail de test sur le port ${PORT} (Pronote=${PRONOTE}, ENT=${CAS})`);
 
-  const { openEntLoginWindow, createSessionFetcher, tracePath } =
-    require(CHEMIN);
+  const {
+    openEntLoginWindow,
+    createSessionFetcher,
+    tracePath,
+    traceReset,
+    traceLog,
+    traceBuild
+  } = require(CHEMIN);
 
   const journal = tracePath();
   if (journal) fs.writeFileSync(journal, '');
@@ -224,6 +230,10 @@ app.whenReady().then(async () => {
   const depart = `${base}/mobile.eleve.html`;
 
   const t0 = Date.now();
+  // Comme la vraie application, la decouverte ouvre le journal.
+  traceReset();
+  traceLog(traceBuild());
+
   const res = await openEntLoginWindow(null, depart, base);
   verifie('fenêtre ENT aboutie', res.success, `raison=${res.reason ?? '-'}`);
   verifie('aucune boucle', res.reason !== 'loop');
@@ -246,6 +256,15 @@ app.whenReady().then(async () => {
     'le ticket revient a Pronote',
     /redirection : (localhost|127\.0\.0\.1):\d+\/pronote\/mobile\.eleve\.html/.test(texte),
     'le service a ete conserve'
+  );
+
+  // Le journal doit porter l'empreinte du code qui l'ecrit. Sans elle, un
+  // journal ne dit pas si l'on parle du deploiement attendu ou d'une copie
+  // laissee de cote.
+  verifie(
+    'journal entame par la tentative',
+    /--- tentative ENT du /.test(texte),
+    texte.split('\n')[1] ?? ''
   );
 
   // Le piege exact du portail de l'utilisateur : ouvrir la fenetre sur la racine

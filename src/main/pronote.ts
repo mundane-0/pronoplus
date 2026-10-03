@@ -14,7 +14,9 @@ import {
   closeEntWindow,
   entLog,
   redactSecrets,
+  traceBuild,
   traceLog,
+  traceRead,
   traceReset,
   tracePath,
   type EntIdentity
@@ -879,8 +881,17 @@ class PronoteManager {
 
     // 1) On interroge l'instance : comptes, racine mobile et URL de l'ENT
     ipcMain.handle('login-ent-open', async (_event, url: string) => {
+      // Le journal s'ouvre ici, a la toute premiere etape, et non a
+      // l'ouverture de la fenetre : une decouverte qui echoue, ou une etape
+      // qui n'aboutit jamais, laisse alors une trace au lieu d'un silence.
+      traceReset();
+      traceLog(traceBuild());
+
       const baseUrl = (url || '').trim();
-      if (!baseUrl) return { success: false, error: 'URL Pronote manquante' };
+      if (!baseUrl) {
+        traceLog('aucune adresse Pronote renseignee');
+        return { success: false, error: 'URL Pronote manquante' };
+      }
 
       let instance: any;
       try {
@@ -888,6 +899,7 @@ class PronoteManager {
           pronoteURL: baseUrl
         });
       } catch (e: any) {
+        traceLog(`découverte impossible : ${redactSecrets(e?.message ?? String(e))}`);
         return {
           success: false,
           error: "Impossible de joindre l'adresse Pronote. Vérifie l'URL."
@@ -895,7 +907,13 @@ class PronoteManager {
       }
 
       const accounts: any[] = instance?.accounts ?? [];
+      traceLog(
+        `découverte : ${(instance?.schoolName || 'établissement inconnu')} ` +
+          `— ${accounts.length} compte(s), ` +
+          `ENT ${redactSecrets(String(instance?.entURL ?? 'non déclaré'))}`
+      );
       if (accounts.length === 0) {
+        traceLog('aucun compte sur cette instance');
         return {
           success: false,
           error: "Aucun compte n'existe à cette adresse Pronote"
@@ -903,6 +921,9 @@ class PronoteManager {
       }
 
       const student = accounts.find((a) => isStudentAccount(a.name));
+      traceLog(
+        `compte élève retenu : ${redactSecrets(String(student?.path ?? 'aucun'))}`
+      );
       return {
         success: true,
         schoolName: instance?.schoolName ?? '',
@@ -939,7 +960,6 @@ class PronoteManager {
          */
         const startUrl = `${base}/${chemin}?fd=1`;
 
-        traceReset();
         traceLog(
           `ouverture de la fenêtre ENT depuis ${redactSecrets(base)} ` +
             `(${redactSecrets(startUrl)}${entUrl ? ', portail déclaré ' + redactSecrets(entUrl) : ''})`
@@ -972,6 +992,14 @@ class PronoteManager {
       if (res.success) closeEntWindow();
       return res;
     });
+
+    // Journal de la derniere tentative, deja expurge : l'interface le propose
+    // dans le presse-papier des qu'une connexion ENT echoue, pour que le
+    // diagnostic ne depende plus d'une suite de fichiers a ouvrir a la main.
+    ipcMain.handle('diagnostic-ent', async () => ({
+      chemin: tracePath(),
+      texte: traceRead()
+    }));
 
     // Connexion par QR code
     ipcMain.handle('login-qrcode', async (_event, payload: any) =>
