@@ -5,7 +5,7 @@ echo "Date : $(date)"
 echo ""
 
 # Étape 1 : Démarrer Vite (interface web)
-echo "1. Démarrage de Vite sur http://localhost:3000/"
+echo "1. Démarrage de Vite sur http://localhost:3001/"
 npm run dev:vite &
 VITE_PID=$!
 sleep 5

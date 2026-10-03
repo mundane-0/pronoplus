@@ -4,7 +4,7 @@
 export LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
 
 echo "🚀 Lancement de ProNote+..."
-echo "Vite démarrera sur http://localhost:3000/"
+echo "Vite démarrera sur http://localhost:3001/"
 echo ""
 
 # Lancement en arrière-plan

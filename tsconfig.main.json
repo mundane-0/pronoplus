@@ -13,8 +13,14 @@
     "noEmitOnError": false,
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"]
-    }
+      "@shared/*": [
+        "src/shared/*"
+      ]
+    },
+    "tsBuildInfoFile": "dist/main/.tsbuildinfo"
   },
-  "include": ["src/main", "src/shared"]
+  "include": [
+    "src/main",
+    "src/shared"
+  ]
 }

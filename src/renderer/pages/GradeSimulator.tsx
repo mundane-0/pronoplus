@@ -101,7 +101,9 @@ const GradeSimulator = () => {
 
   const handleResetSimulations = () => {
     setSimulatedGrades([]);
-    toast.info('Simulations réinitialisées');
+    // react-hot-toast n'expose pas `toast.info` : l'appel aurait echoue a
+    // l'execution. L'appel nu affiche une notification neutre.
+    toast('Simulations réinitialisées');
   };
 
   const handleApplyToTarget = () => {
@@ -109,7 +111,7 @@ const GradeSimulator = () => {
       ...newGrade,
       grade: requiredGrade
     });
-    toast.info(`Note cible appliquée: ${requiredGrade.toFixed(2)}/20`);
+    toast.success(`Note cible appliquée : ${requiredGrade.toFixed(2)}/20`);
   };
 
   // Données pour le graphique d'évolution

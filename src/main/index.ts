@@ -4,9 +4,22 @@ import { dbManager } from './database';
 import { setupPronoteHandlers } from './pronote';
 import { setupIPCHandlers } from './ipc';
 
-// Helper pour obtenir le chemin correct dans l'asar
+/**
+ * Resout un chemin relatif a la racine de l'application, aussi bien depuis les
+ * sources qu'une fois empaquete dans un asar.
+ *
+ * `__dirname` vaut `…/resources/app.asar/dist/main` dans le paquet, et
+ * `…/dist/main` en developpement. Il faut donc remonter d'un cran *uniquement*
+ * dans le premier cas.
+ *
+ * Le test ne doit pas etre `startsWith('app.asar')` : `__dirname` est un chemin
+ * absolu, il commence donc toujours par `/` et la condition est toujours
+ * fausse. L'application cherchait alors la page dans
+ * `app.asar/dist/main/renderer/…` au lieu de `app.asar/dist/renderer/…`, et
+ * affichait un ecran blanc — sans lever la moindre erreur.
+ */
 function getAssetPath(...paths: string[]): string {
-  const dir = __dirname.startsWith('app.asar') ? path.dirname(__dirname) : __dirname;
+  const dir = __dirname.includes('app.asar') ? path.dirname(__dirname) : __dirname;
   return path.join(dir, ...paths);
 }
 

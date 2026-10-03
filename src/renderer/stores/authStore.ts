@@ -32,6 +32,24 @@ interface LoginCredentials {
   rememberMe: boolean;
 }
 
+/**
+ * Met en forme l'utilisateur renvoye par le processus principal.
+ *
+ * Le processus principal renvoie `class` et `establishment` sous forme
+ * d'objets (`{ name }`), alors que l'interface `User` les tient pour des
+ * chaînes — `Layout.tsx` les affiche directement. Sans cette conversion, les
+ * chemins de connexion non ecrits comme les autres afficheraient `[object Object]`.
+ */
+function versUtilisateur(brut: any, repliNom: string): User {
+  return {
+    id: brut?.id ?? '',
+    name: brut?.name || repliNom || 'Élève',
+    class: brut?.class?.name || 'Classe inconnue',
+    establishment: brut?.establishment?.name || 'Établissement inconnu',
+    avatar: brut?.avatar
+  };
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -50,17 +68,8 @@ export const useAuthStore = create<AuthState>()(
             throw new Error(result.error || 'Erreur de connexion');
           }
 
-          // Créer l'utilisateur à partir des données Pronote
-          const user: User = {
-            id: result.user?.id || '',
-            name: result.user?.name || 'Élève',
-            class: result.user?.class?.name || 'Classe inconnue',
-            establishment: result.user?.establishment?.name || 'Établissement inconnu',
-            avatar: result.user?.avatar
-          };
-
-          set({ 
-            user, 
+          set({
+            user: versUtilisateur(result.user, ''),
             isAuthenticated: true, 
             isLoading: false 
           });
@@ -84,15 +93,11 @@ export const useAuthStore = create<AuthState>()(
             throw new Error(result.error || 'Erreur du mode démonstration');
           }
 
-          const user: User = {
-            id: result.user?.id || 'demo-user',
-            name: result.user?.name || credentials.username || 'Élève',
-            class: result.user?.class?.name || 'Classe inconnue',
-            establishment: result.user?.establishment?.name || 'Établissement inconnu',
-            avatar: result.user?.avatar
-          };
-
-          set({ user, isAuthenticated: true, isLoading: false });
+          set({
+            user: versUtilisateur(result.user, credentials.username),
+            isAuthenticated: true,
+            isLoading: false
+          });
         } catch (error: any) {
           console.error('Erreur lors de la connexion (démo):', error);
           set({ error: error.message || 'Erreur du mode démonstration', isLoading: false });
@@ -112,12 +117,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           set({
-            user: {
-              id: result.user?.id ?? '',
-              name: result.user?.name || credentials.username || 'Élève',
-              class: { name: result.user?.class?.name ?? 'Classe inconnue' },
-              establishment: { name: result.user?.establishment?.name ?? 'Établissement inconnu' }
-            },
+            user: versUtilisateur(result.user, credentials.username),
             isAuthenticated: true,
             isLoading: false
           });
@@ -139,12 +139,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           set({
-            user: {
-              id: result.user?.id ?? '',
-              name: result.user?.name ?? payload.login ?? 'Élève',
-              class: { name: result.user?.class?.name ?? 'Classe inconnue' },
-              establishment: { name: result.user?.establishment?.name ?? 'Établissement inconnu' }
-            },
+            user: versUtilisateur(result.user, payload.login),
             isAuthenticated: true,
             isLoading: false
           });

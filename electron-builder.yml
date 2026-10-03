@@ -1,22 +1,38 @@
 appId: com.pronoplus.app
 productName: ProNote+
+copyright: 'Copyright © 2026 ProNote+ Contributors'
+
 directories:
   output: dist
   buildResources: resources
 
+# Seul fichier de configuration d'empaquetage : electron-builder donne la
+# priorite a electron-builder.yml et ignore alors le champ `build` de
+# package.json. Entretenir les deux rend toute modification de l'un sans effet
+# sur la construction : une facon tres discrete de ne pas voir son changement
+# apparaitre dans le paquet produit.
 files:
   - 'dist/renderer/**/*'
   - 'dist/main/**/*'
   - 'package.json'
+  # Les cartes sources ne servent qu'au developpement et representent une
+  # bonne part du poids de l'archive.
+  - '!**/*.map'
   - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
   - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
   - '!**/node_modules/*.d.ts'
   - '!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}'
   - '!.editorconfig'
   - '!**/._*'
+  # Artefacts de construction, jamais necessaires a l'execution.
   - '!dist/builder-debug.yml'
+  - '!dist/builder-effective-config.yml'
   - '!dist/linux-unpacked/**/*'
-  - '!dist/renderer/src/renderer/index.html'
+  - '!dist/mac*/**/*'
+  - '!dist/win-unpacked/**/*'
+  # `dist/renderer/src/renderer/index.html` est la page chargee par
+  # `src/main/index.ts`. L'exclure donne un ecran blanc : c'est exactement le
+  # symptome constate sur la v1.0.0, ou ce motif etait present.
 
 extraResources:
   - from: resources
@@ -40,7 +56,6 @@ win:
         - ia32
   icon: resources/icon.ico
   publisherName: ProNote+ Team
-  legalCopyright: 'Copyright © 2026 ProNote+ Contributors'
   artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
 
 nsis:
@@ -51,14 +66,12 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: ProNote+
   uninstallDisplayName: ProNote+
-  include: resources/installer.nsh
   license: LICENSE
 
 linux:
   target:
     - AppImage
     - deb
-    - snap
   icon: resources/icon.png
   category: Education
   maintainer: support@pronote-plus.dev
@@ -68,41 +81,43 @@ linux:
     Name: ProNote+
     Comment: 'Application desktop pour Pronote avec analyse avancée des notes'
     Categories: Education;Utility;
-    Keywords: pronote;education;grades;school
+    Keywords: pronote;education;grades;school;
 
-  appImage:
-    license: LICENSE
-    category: Education
-    synopsis: 'Application desktop pour Pronote'
+# Les options propres a AppImage se placent a la racine, pas sous `linux` :
+# electron-builder rejette la configuration entiere si elles sont mises au
+# mauvais niveau, et aucun paquet n'est alors produit.
+appImage:
+  license: LICENSE
+  category: Education
+  synopsis: 'Application desktop pour Pronote'
 
 mac:
+  # Ni `resources/icon.icns` ni `resources/entitlements.mac.plist` ne sont
+  # presents dans le depot : les referencer faisait echouer la construction
+  # macOS. A ajouter si un jour l'icone et les droits sont versionnes.
   target:
     - dmg
     - zip
-  icon: resources/icon.icns
   category: public.app-category.education
   artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
   hardenedRuntime: true
   gatekeeperAssess: false
-  entitlements: 'resources/entitlements.mac.plist'
-  entitlementsInherit: 'resources/entitlements.mac.plist'
 
 publish:
   provider: github
-  owner: pronote-plus
+  owner: mundane-0
   repo: pronoplus
   releaseType: release
 
 npmRebuild: false
 buildDependenciesFromSource: true
-
-extraMetadata:
-  main: dist/main/index.js
-
-electronVersion: 30.0.0
-electronDownload:
-  mirror: 'https://github.com/electron/electron/releases/download/v'
-
 nodeGypRebuild: false
 npmArgs:
   - '--legacy-peer-deps'
+
+# Aucune version d'Electron n'est imposee ici : electron-builder utilise celle
+# installee (celle de `devDependencies`). Epingler `30.0.0` alors que le
+# projet en installe une autre fait telecharger un second runtime, enorme et
+# incoherent avec le code teste.
+extraMetadata:
+  main: dist/main/index.js
