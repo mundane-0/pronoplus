@@ -9,6 +9,7 @@ import {
   Search,
   Calendar,
   BookOpen,
+  Calculator,
   BarChart as BarChartIcon,
   PieChart as PieChartIcon,
   LineChart as LineChartIcon

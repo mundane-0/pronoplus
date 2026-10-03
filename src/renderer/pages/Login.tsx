@@ -21,7 +21,7 @@ const ENT_OPTIONS = [
 
 const Login = () => {
   const navigate = useNavigate();
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const { login, loginDemo, loginEnt, loginWithQr, isLoading, error, clearError } = useAuthStore();
   
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('');
@@ -30,6 +30,11 @@ const Login = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [useENT, setUseENT] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // QR code (secours si l'ENT ne fonctionne pas)
+  const [qrMode, setQrMode] = useState(false);
+  const [pinCode, setPinCode] = useState('');
+  const [jeton, setJeton] = useState('');
+  const [entBusy, setEntBusy] = useState(false);
 
   // Exemples d'URL Pronote
   const exampleUrls = [
@@ -41,6 +46,81 @@ const Login = () => {
   useEffect(() => {
     clearError();
   }, []);
+
+  /**
+   * Connexion via l'ENT de l'établissement.
+   *
+   * Une fenêtre officielle s'ouvre sur le portail ENT de l'établissement.
+   * L'utilisateur s'y authentifie une fois (EduConnect, identifiant et mot de
+   * passe de son compte). Le portail renvoie vers Pronote, qui reconnaît
+   * l'utilisateur ; l'application récupère alors son jeton et se connecte
+   * toute seule. Ni l'identifiant ni le mot de passe Pronote ne sont demandés.
+   */
+  const handleEntLogin = async () => {
+    if (!url.trim()) {
+      toast.error("Renseignez l'URL Pronote de votre établissement");
+      return;
+    }
+    setEntBusy(true);
+    try {
+      const info: any = await (window as any).mainAPI.loginEntOpen(url.trim());
+      if (!info.success) {
+        toast.error(info.error || 'Établissement introuvable');
+        return;
+      }
+
+      const opened: any = await (window as any).mainAPI.loginEntWindow(
+        url.trim(),
+        info.entUrl ?? null,
+        info.accountPath || 'mobile.eleve.html'
+      );
+
+      if (!opened.success) {
+        toast.error(
+          opened.reason === 'cancelled'
+            ? 'Connexion à l\'ENT annulée'
+            : "L'ENT n'a pas créé de session Pronote. Reconnecte-toi à l'ENT, puis réessaie."
+        );
+        return;
+      }
+
+      await loginEnt({
+        url: url.trim(),
+        username: username.trim(),
+        password: password.trim(),
+        rememberMe
+      });
+      toast.success('Connexion réussie !');
+      navigate('/');
+    } catch (e: any) {
+      toast.error(e.message || "Erreur de connexion via l'ENT");
+    } finally {
+      setEntBusy(false);
+    }
+  };
+
+  /** Connexion par QR code Pronote (secours). */
+  const handleQrLogin = async () => {
+    if (!pinCode.trim() || !jeton.trim() || !username.trim()) {
+      toast.error('Renseignez le code à 4 chiffres, le jeton et votre identifiant');
+      return;
+    }
+    setEntBusy(true);
+    try {
+      await loginWithQr({
+        pinCode: pinCode.trim(),
+        jeton: jeton.trim(),
+        login: username.trim(),
+        url: url.trim()
+      });
+      toast.success('Connexion réussie !');
+      navigate('/');
+    } catch (e: any) {
+      toast.error(e.message || 'Erreur de connexion par QR code');
+    } finally {
+      setEntBusy(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -262,17 +342,90 @@ const Login = () => {
               
               <button
                 type="button"
-                onClick={() => {
-                  // Remplir avec des données de démonstration
-                  setUrl('https://demo.index-education.net/pronote/');
-                  setUsername('demonstration');
-                  setPassword('pronote');
-                  toast.info('Données de démonstration chargées');
+                onClick={async () => {
+                  const demoUrl = url.trim() || 'https://demo.index-education.net/pronote/';
+                  const demoUser = username.trim() || 'arsene';
+                  setUrl(demoUrl);
+                  setUsername(demoUser);
+                  try {
+                    await loginDemo({
+                      url: demoUrl,
+                      username: demoUser,
+                      password: password.trim() || 'demo',
+                      rememberMe: false
+                    });
+                    toast.success('Mode démonstration activé');
+                    navigate('/');
+                  } catch (e: any) {
+                    toast.error(e.message || 'Erreur du mode démonstration');
+                  }
                 }}
                 className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
               >
                 Mode démonstration
               </button>
+            </div>
+
+            {/* Actions alternatives : ENT puis QR code */}
+            <div className="space-y-2">
+              {!qrMode ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleEntLogin}
+                    disabled={entBusy || isLoading}
+                    className="w-full py-3 px-4 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <School className="w-4 h-4" />
+                    {entBusy ? 'Connexion à l\'ENT en cours...' : "Se connecter via l'ENT (recommandé)"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQrMode(true)}
+                    className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 py-1"
+                  >
+                    Connexion par QR code (si l'ENT ne fonctionne pas)
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Sur le site web de Pronote, demande un QR code de connexion
+                    puis indique ici le code à 4 chiffres et le jeton.
+                  </p>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pinCode}
+                    onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Code à 4 chiffres"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={jeton}
+                    onChange={(e) => setJeton(e.target.value)}
+                    placeholder="Jeton (jetonConnexion)"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleQrLogin}
+                    disabled={entBusy || isLoading}
+                    className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50"
+                  >
+                    {entBusy ? 'Connexion...' : 'Se connecter avec le QR code'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQrMode(false)}
+                    className="w-full text-xs text-gray-500 hover:text-blue-600 py-1"
+                  >
+                    Revenir à la connexion par l'ENT
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Error Message */}
@@ -296,7 +449,7 @@ const Login = () => {
               ) : (
                 <>
                   <Lock className="w-4 h-4" />
-                  Se connecter à Pronote
+                  Accéder à Pronote
                 </>
               )}
             </button>

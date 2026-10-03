@@ -39,8 +39,12 @@ class Main {
       }
     });
 
-    // Charger l'application React avec le bon chemin
-    const htmlPath = getAssetPath('renderer', 'index.html');
+    // Charger l'application React.
+    // Vite ecrit la page dans `dist/renderer/src/renderer/index.html` : le
+    // nom du fichier d'entree du build est `main`, ce qui fait conserver le
+    // chemin `src/renderer/` de la source. `dist/renderer/index.html`
+    // n'existe pas — le charger donne l'ecran blanc.
+    const htmlPath = getAssetPath('renderer', 'src', 'renderer', 'index.html');
     this.mainWindow.loadFile(htmlPath);
 
     // Ouvrir DevTools en développement

@@ -79,13 +79,11 @@ const scheduledNotifications = new Map<string, NodeJS.Timeout>();
 export function setupIPCHandlers(): void {
   // Database handlers
   ipcMain.handle('save-grade-analysis', async (_, analysis: GradeAnalysis) => {
-    // TODO: Implémenter la logique de sauvegarde d'analyse
-    console.log('Saving grade analysis:', analysis);
+    void analysis;
   });
 
   ipcMain.handle('get-grade-analysis', async (_, subjectId: string) => {
-    // TODO: Implémenter la logique de récupération d'analyse
-    console.log('Getting grade analysis for subject:', subjectId);
+    void subjectId;
     return null;
   });
 
@@ -129,8 +127,8 @@ export function setupIPCHandlers(): void {
         gradeAlert: dbManager.getSetting('notifications.gradeAlert') === 'true'
       },
       aiProvider: aiProvider || 'none',
-      ollamaModel,
-      openaiApiKey
+      ollamaModel: ollamaModel || '',
+      openaiApiKey: openaiApiKey ?? undefined
     };
 
     return settings;
@@ -140,7 +138,7 @@ export function setupIPCHandlers(): void {
     // Sauvegarder chaque paramètre
     dbManager.saveSetting('theme', settings.theme);
     dbManager.saveSetting('accentColor', settings.accentColor);
-    dbManager.saveSetting('language', settings.language);
+    dbManager.saveSetting('language', settings.language ?? 'fr');
     dbManager.saveSetting('notifications.homeworkReminder', settings.notifications.homeworkReminder.toString());
     dbManager.saveSetting('notifications.classReminder', settings.notifications.classReminder.toString());
     dbManager.saveSetting('notifications.gradeAlert', settings.notifications.gradeAlert.toString());
@@ -158,7 +156,7 @@ export function setupIPCHandlers(): void {
     
     let csv = 'Matière,Intitulé,Note,Barème,Coefficient,Moyenne classe,Min,Max,Date,Professeur\n';
     
-    grades.forEach((grade: any) => {
+    grades.forEach(grade => {
       csv += `"${grade.subject}","${grade.title}",${grade.grade},${grade.scale},${grade.coefficient},${grade.classAverage},${grade.min},${grade.max},"${grade.date}","${grade.teacher}"\n`;
     });
 
@@ -202,7 +200,7 @@ export function setupIPCHandlers(): void {
     
     // Données
     doc.font('Helvetica');
-    grades.forEach((grade: any) => {
+    grades.forEach(grade => {
       doc.text(grade.subject, 50, yPosition);
       doc.text(`${grade.grade}/${grade.scale}`, 200, yPosition);
       doc.text(grade.coefficient.toString(), 250, yPosition);
@@ -222,9 +220,9 @@ export function setupIPCHandlers(): void {
 
   ipcMain.handle('export-calendar-ics', async (_, events: CalendarEvent[]) => {
     const icsEvents = events.map(event => ({
-      start: event.startDate.split('T')[0].split('-').map(Number).slice(0,3) ,
+      start: event.startDate.split('T')[0].split('-').map(Number) as [number, number, number],
       startInputType: 'utc' as const,
-      end: event.endDate.split('T')[0].split('-').map(Number).slice(0,3) ,
+      end: event.endDate.split('T')[0].split('-').map(Number) as [number, number, number],
       endInputType: 'utc' as const,
       title: event.title,
       description: event.description,

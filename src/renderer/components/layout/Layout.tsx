@@ -27,8 +27,32 @@ const Layout = () => {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  // Sur grand écran la sidebar est toujours visible ; sur petit écran elle est un tiroir.
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  React.useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const onChange = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      // Sur grand écran, on force l'ouverture
+      if (!e.matches) setSidebarOpen(true);
+    };
+    setIsMobile(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // La sidebar est visible si on est sur grand écran, sinon selon l'état du tiroir
+  const sidebarVisible = isMobile ? sidebarOpen : true;
+
+  const closeSidebarOnMobile = () => {
+    if (isMobile) setSidebarOpen(false);
+  };
 
   const navigationItems = [
     { path: '/', icon: Home, label: 'Tableau de bord' },
@@ -60,21 +84,18 @@ const Layout = () => {
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <motion.aside
-        initial={{ x: -300 }}
-        animate={{ x: sidebarOpen ? 0 : -300 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className={`fixed md:relative z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full transition-transform duration-200 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0`}
+      <aside
+        className={`fixed md:relative z-50 w-64 shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full transition-transform duration-200 ${
+          sidebarVisible ? 'translate-x-0' : '-translate-x-full'
+        }`}
       >
         {/* Logo */}
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
@@ -116,7 +137,7 @@ const Layout = () => {
                   <button
                     onClick={() => {
                       navigate(item.path);
-                      setSidebarOpen(false);
+                      closeSidebarOnMobile();
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
                       isActive
@@ -160,7 +181,7 @@ const Layout = () => {
             <span>Déconnexion</span>
           </button>
         </div>
-      </motion.aside>
+      </aside>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -169,6 +190,7 @@ const Layout = () => {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label="Menu"
               className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg md:hidden"
             >
               {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

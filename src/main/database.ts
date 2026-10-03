@@ -451,14 +451,16 @@ class DatabaseManager {
     stmt.free();
   }
 
-  getCredentials(url: string): CredentialsRecord | null {
+  getCredentials(url?: string): CredentialsRecord | null {
     if (!this.db) return null;
 
-    const stmt = this.db.prepare(`
-      SELECT * FROM credentials WHERE url = ?
-    `);
-    stmt.bind([url]);
-    
+    // Sans URL, on renvoie simplement le credential le plus récent
+    const stmt = url
+      ? this.db.prepare(`SELECT * FROM credentials WHERE url = ? LIMIT 1`)
+      : this.db.prepare(`SELECT * FROM credentials ORDER BY lastLogin DESC LIMIT 1`);
+
+    if (url) stmt.bind([url]);
+
     let result: CredentialsRecord | null = null;
     if (stmt.step()) {
       const row = stmt.getAsObject();
@@ -501,13 +503,15 @@ class DatabaseManager {
     return results;
   }
 
-  deleteCredentials(url: string): void {
+  deleteCredentials(url?: string): void {
     if (!this.db) return;
 
-    const stmt = this.db.prepare(`
-      DELETE FROM credentials WHERE url = ?
-    `);
-    stmt.bind([url]);
+    // Sans URL, on supprime tous les identifiants enregistrés
+    const stmt = url
+      ? this.db.prepare(`DELETE FROM credentials WHERE url = ?`)
+      : this.db.prepare(`DELETE FROM credentials`);
+
+    if (url) stmt.bind([url]);
     stmt.step();
     stmt.free();
   }
@@ -641,11 +645,15 @@ class DatabaseManager {
   }
 }
 
-export default DatabaseManager;
-
-// Singleton instance
+// Instance unique partagée par le processus principal
 export const dbManager = new DatabaseManager();
 
-export function initDatabase(): Promise<void> {
-  return dbManager.init();
+/**
+ * Initialise la base de données au démarrage de l'application.
+ */
+export async function initDatabase(): Promise<DatabaseManager> {
+  await dbManager.init();
+  return dbManager;
 }
+
+export default DatabaseManager;

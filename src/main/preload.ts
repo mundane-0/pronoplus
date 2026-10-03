@@ -1,12 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-// Types placeholder for pawnote compatibility
-type PronoteApiAccount = Record<string, any>;
-
 // Définir les types pour l'API exposée
 export interface MainAPI {
   // Auth
   login: (credentials: LoginCredentials) => Promise<LoginResult>;
+  loginDemo: (credentials: LoginCredentials) => Promise<LoginResult>;
   logout: () => Promise<void>;
   getSavedCredentials: () => Promise<SavedCredentials | null>;
   deleteSavedCredentials: () => Promise<void>;
@@ -55,7 +53,7 @@ interface LoginCredentials {
 
 interface LoginResult {
   success: boolean;
-  user?: PronoteApiAccount;
+  user?: any;
   error?: string;
 }
 
@@ -203,6 +201,17 @@ contextBridge.exposeInMainWorld('mainAPI', {
   login: (credentials: LoginCredentials) => 
     ipcRenderer.invoke('login', credentials),
   logout: () => ipcRenderer.invoke('logout'),
+  loginDemo: (credentials: LoginCredentials) =>
+    ipcRenderer.invoke('login-demo', credentials),
+  loginEntOpen: (url: string) => ipcRenderer.invoke('login-ent-open', url),
+  loginEntWindow: (url: string, entUrl: string | null, accountPath: string) =>
+    ipcRenderer.invoke('login-ent-window', url, entUrl, accountPath) as Promise<{
+      success: boolean;
+      reason?: string;
+    }>,
+  loginEnt: (credentials: LoginCredentials) =>
+    ipcRenderer.invoke('login-ent', credentials),
+  loginQrCode: (payload: any) => ipcRenderer.invoke('login-qrcode', payload),
   getSavedCredentials: () => ipcRenderer.invoke('get-saved-credentials'),
   deleteSavedCredentials: () => ipcRenderer.invoke('delete-saved-credentials'),
   
