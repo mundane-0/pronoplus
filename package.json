@@ -24,6 +24,7 @@
     "build:linux": "npm run build && electron-builder --linux",
     "build:mac": "npm run build && electron-builder --mac",
     "lint": "eslint . --ext .ts,.tsx",
+    "test:ent": "npm run build:main && electron scripts/tester-ent.cjs",
     "type-check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
     "preview": "vite preview"
   },

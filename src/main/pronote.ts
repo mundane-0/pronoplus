@@ -13,6 +13,10 @@ import {
   openEntLoginWindow,
   closeEntWindow,
   entLog,
+  redactSecrets,
+  traceLog,
+  traceReset,
+  tracePath,
   type EntIdentity
 } from './entAuth';
 import { dbManager, CredentialsRecord } from './database';
@@ -133,6 +137,17 @@ function stripHtml(input: string): string {
  * Elle est renseignée par `login-ent-window` et consommée par `login-ent`.
  */
 let entSessionStore: EntIdentity | null = null;
+
+/**
+ * Cookies que la fenêtre ENT a obtenus pour le domaine Pronote.
+ *
+ * pawnote n'a pas de jar à cookies et jette ceux que Pronote lui renvoie : il
+ * dialogue avec le serveur comme un visiteur anonyme, alors même que
+ * l'utilisateur vient de s'authentifier. Conservés ici, ils sont réinjectés à
+ * chaque requête du dialogue, et c'est ce qui distingue une session déjà
+ * validée par l'ENT d'une requête sans preuve.
+ */
+let entCookiesStore: Array<{ host: string; cookie: string }> = [];
 
 class PronoteManager {
   private currentSession: any | null = null;
@@ -278,7 +293,11 @@ class PronoteManager {
       const account =
         accounts.find((a: any) => a.id === entSession.accountTypeID) ?? student;
 
-      const fetcher = createSessionFetcher();
+      const fetcher = createSessionFetcher(entCookiesStore);
+      traceLog(
+        `=== authentification ENT sur ${redactSecrets(instance.pronoteRootURL || baseUrl)} ` +
+          `(compte ${account.id}, ${entCookiesStore.length} cookie(s) en réserve) ===`
+      );
       entLog(
         `authentification ENT sur ${instance.pronoteRootURL} (compte ${account.id})`
       );
@@ -326,9 +345,20 @@ class PronoteManager {
           "L'ENT a renvoyé un jeton que Pronote refuse. Reconnecte-toi à l'ENT.";
       } else if (/rate-limited|rate limited/i.test(msg)) {
         errorMessage = 'Trop de tentatives. Patiente quelques minutes.';
-      } else if (/page has expired|extract session|does not exist/i.test(msg)) {
+      } else if (/extract session|does not exist/i.test(msg)) {
+        // pawnote n'a pas su lire `Start({...})` dans la page mobile : la
+        // requête n'est pas arrivée sur une page de session. Cela arrive
+        // quand l'établissement redirige la page mobile vers son portail, ou
+        // quand le jeton a déjà été consommé.
         errorMessage =
-          "Pronote n'a pas ouvert de session. Reconnecte-toi à l'ENT, puis réessaie.";
+          "Pronote n'a pas ouvert de session via l'ENT. Reconnecte-toi à l'ENT, puis réessaie.";
+      } else if (/page has expired/i.test(msg)) {
+        // L'expiré vient de `readPronoteFunctionPayload`, donc d'un POST
+        // `appelfonction` : cette fois la page de session a bien été lue, mais
+        // le serveur a rejeté la demande. C'est presque toujours le délai entre
+        // l'ouverture de la fenêtre et la validation.
+        errorMessage =
+          "La session de l'ENT a expiré avant d'être utilisée. Reconnecte-toi à l'ENT, puis réessaie aussitôt.";
       } else {
         // Pronote 2025+ répond « Vous avez dépassé le nombre d'erreurs
         // d'authentification autorisées » : c'est son anti-brute-force, il
@@ -337,6 +367,7 @@ class PronoteManager {
           'Trop de tentatives de connexion. Patiente quelques minutes, puis réessaie.';
       }
 
+      traceLog(`ECHEC : ${msg}`);
       return { success: false, error: errorMessage };
     }
   }
@@ -432,6 +463,7 @@ class PronoteManager {
     this.demoUser = null;
     this.currentSchoolName = null;
     entSessionStore = null;
+    entCookiesStore = [];
 
     await this.deleteSavedCredentials();
   }
@@ -887,21 +919,31 @@ class PronoteManager {
       'login-ent-window',
       async (_event, url: string, entUrl: string | null, accountPath: string) => {
         const base = (url || '').trim().replace(/\/+$/, '');
-        const pronoteHost = new URL(base).hostname;
         // Sans ENT déclaré, on ouvre la page mobile de Pronote : certains
         // établissements y redirigent eux-mêmes vers leur portail.
         const startUrl = entUrl || `${base}/${accountPath || 'mobile.eleve.html'}`;
 
+        traceReset();
+        traceLog(
+          `ouverture de la fenêtre ENT depuis ${redactSecrets(base)} (${redactSecrets(startUrl)})`
+        );
+
         const result = await openEntLoginWindow(
           BrowserWindow.getAllWindows()[0] ?? null,
           startUrl,
-          pronoteHost
+          base
         );
 
         if (result.success && result.identity) {
           entSessionStore = result.identity;
+          entCookiesStore = result.cookies ?? [];
+          traceLog(
+            `fenêtre ENT : identité obtenue, ${entCookiesStore.length} cookie(s) retenus`
+          );
         } else {
           entSessionStore = null;
+          entCookiesStore = [];
+          traceLog(`fenêtre ENT : échec (${result.reason ?? 'inconnu'})`);
         }
         return { success: result.success, reason: result.reason };
       }

@@ -1,4 +1,6 @@
 import { BrowserWindow, app } from 'electron';
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { defaultPawnoteFetcher } from 'pawnote';
 import type { PawnoteFetcher } from 'pawnote';
 
@@ -22,6 +24,48 @@ const DEBUG =
 export function entLog(message: string): void {
   if (!DEBUG) return;
   console.log(`[ENT] ${new Date().toISOString().slice(11, 19)} ${redactSecrets(message)}`);
+}
+
+/**
+ * Journal de bord des échanges réseau, pour poser un diagnostic à distance.
+ *
+ * Écrire dans la console ne suffit pas : l'utilisateur ne voit que la fenêtre,
+ * et le launcher de l'application avale la sortie standard. Pire, une
+ * application installée est `app.isPackaged`, donc `entLog` n'écrit rien du
+ * tout — c'est pourquoi un échec de connexion ENT n'a laissé aucune trace et
+ * n'a pu être qu'imaginé.
+ *
+ * Ce fichier est cette trace. Trois garde-fous :
+ *
+ * - il est **réécrit** à chaque tentative (`traceReset`), il ne grossit donc pas ;
+ * - les **valeurs** de cookies n'y figurent jamais, seulement leurs noms ;
+ * - le corps des réponses est tronqué à 400 caractères et expurgé des jetons
+ *   (`ticket=`, `jeton`, `cleJeton`, `session`, identifiants de session).
+ *
+ * Il ne contient aucun mot de passe : ni EduConnect, ni Pronote.
+ */
+const TRACE_FILE = join(app.getPath('userData'), 'pronote-trace.log');
+
+export function traceLog(message: string): void {
+  const ligne = `${new Date().toISOString()} ${redactSecrets(message)}\n`;
+  try {
+    appendFileSync(TRACE_FILE, ligne);
+  } catch {
+    // Un journal indisponible ne doit jamais faire échouer une connexion.
+  }
+}
+
+export function tracePath(): string | null {
+  return TRACE_FILE;
+}
+
+/** Efface la tentative précédente : le journal ne décrit qu'un essai. */
+export function traceReset(): void {
+  try {
+    writeFileSync(TRACE_FILE, `--- tentative ENT du ${new Date().toISOString()} ---\n`);
+  } catch {
+    traceLog('journal indisponible');
+  }
 }
 
 /** Remplace les jetons d'authentification par une valeur neutre. */
@@ -63,6 +107,15 @@ export interface EntIdentity {
 export interface EntLoginResult {
   success: boolean;
   identity?: EntIdentity;
+  /**
+   * Cookies que la fenêtre ENT a obtenus **pour le domaine Pronote seul**.
+   *
+   * Ils sont la trace de la validation CAS : c'est cette preuve qui manque à
+   * pawnote, dont le jar est vide. Les domaines EduConnect et CAS en sont
+   * naturellement exclus, `cookies.get({ url })` ne renvoyant que ce qui
+   * correspond à l'URL demandée.
+   */
+  cookies?: Array<{ host: string; cookie: string }>;
   reason?: 'cancelled' | 'no-identity' | 'loop' | 'error-page';
 }
 
@@ -143,7 +196,7 @@ export function identityFromStartCall(
 export function openEntLoginWindow(
   parent: BrowserWindow | null,
   startUrl: string,
-  pronoteHost: string
+  pronoteRootUrl: string
 ): Promise<EntLoginResult> {
   return new Promise((resolve) => {
     let settled = false;
@@ -175,6 +228,41 @@ export function openEntLoginWindow(
     const MAX_ROUND_TRIPS = 12;
     let roundTrips = 0;
     let onEntPage: boolean | null = null;
+    const pronoteHost = (() => {
+      try {
+        return new URL(pronoteRootUrl).hostname.toLowerCase();
+      } catch {
+        return '';
+      }
+    })();
+
+    /**
+     * Relit les cookies du domaine Pronote après validation du ticket CAS.
+     *
+     * C'est le seul endroit où l'application peut les obtenir : la fenêtre va
+     * être fermée et son jar avec elle. `pronoteRootUrl` sert de filtre — sans
+     * lui on renverrait à Pronote des cookies d'EduConnect, qui n'ont rien à y
+     * faire et sont des identifiants d'un autre service.
+     */
+    const cookiesPronote = async (): Promise<
+      Array<{ host: string; cookie: string }>
+    > => {
+      try {
+        const lus = await entWindow.webContents.session.cookies.get({
+          url: pronoteRootUrl
+        });
+        const nommes = lus
+          .filter((c) => c.value !== '')
+          .map((c) => `${c.name}=${c.value}`);
+        entLog(
+          `cookies retenus pour le domaine Pronote : ${nommes.map((c) => c.split('=')[0]).join(', ') || 'aucun'}`
+        );
+        return nommes.map((cookie) => ({ host: pronoteHost, cookie }));
+      } catch (e) {
+        entLog(`lecture des cookies impossible : ${(e as Error).message}`);
+        return [];
+      }
+    };
 
     /** Lit la page courante et cherche l'identité Pronote qu'elle porte. */
     const inspect = async () => {
@@ -204,7 +292,7 @@ export function openEntLoginWindow(
       entLog(
         `identité ENT obtenue (espace ${identity.accountTypeID}, session ${identity.sessionID})`
       );
-      finish({ success: true, identity });
+      finish({ success: true, identity, cookies: await cookiesPronote() });
     };
 
     entWindow.webContents.on('will-redirect', (_event, url) => {
@@ -255,30 +343,228 @@ function isPronoteUrl(url: string, pronoteHost: string): boolean {
 }
 
 /**
- * Fetcher pawnote.
+ * Fetcher pawnote qui se souvient des cookies.
  *
- * pawnote construit lui-même ses URL (notamment le `?fd=1` de la page mobile)
- * et analyse la réponse pour y lire l'appel `Start({...})`. Toute réécriture
- * d'URL ou d'en-tête casse cette lecture, et l'utilisateur d'un établissement
- * verrait alors « Pronote n'a pas ouvert de session ».
+ * pawnote n'a pas de jar : il n'envoie que `ielang=fr` (+ `appliMobile=1` pour
+ * un jeton), et il jette les cookies que Pronote lui renvoie. La trace de
+ * l'instance de démonstration le montre :
  *
- * On délègue donc au fetcher officiel de pawnote, sans toucher aux URL, aux
- * en-têtes ni aux cookies. Les cookies de la fenêtre ENT ne sont pas
- * transmis : ils appartiennent aux domaines CAS / EduConnect et ne doivent
- * jamais être renvoyés vers le domaine Pronote.
+ * ```
+ * #2 GET  .../mobile.eleve.html?fd=1   <- cookies sortants : ielang=fr
+ * #6 POST .../appelfonction/6/6144274/…  <- cookies recus : CASTGC=TGT-62544-…
+ * ```
+ *
+ * Ce `CASTGC` est le cookie du serveur CAS : il prouve que le client est
+ * passé par l'ENT. pawnote le reçoit et ne le renvoie jamais. Sur une instance
+ * publique, Pronote s'en passe. Sur une instance derrière un ENT, c'est
+ * précisément ce qui distingue une session déjà validée d'une requête anonyme —
+ * d'où les réponses « la page a expiré » / « session » que l'utilisateur
+ * rencontrait.
+ *
+ * Ce fetcher tient donc le jar lui-même, et y verse en plus les cookies que la
+ * fenêtre ENT a obtenus pour le domaine Pronote.
+ *
+ * Les URL, en-têtes et cookies de pawnote sont laissés intacts : il construit
+ * lui-même ses URL (le `?fd=1` de la page mobile) et analyse la réponse pour y
+ * lire `Start({...})`. Le seul ajout est l'en-tête `Cookie`, fusionné avec
+ * celui que pawnote demande.
  */
-export function createSessionFetcher(): PawnoteFetcher {
+export function createSessionFetcher(
+  seed: ReadonlyArray<{ host: string; cookie: string }> = []
+): PawnoteFetcher {
+  const jar = new Map<string, Map<string, string>>();
+
+  const bucket = (host: string): Map<string, string> => {
+    let b = jar.get(host);
+    if (!b) {
+      b = new Map();
+      jar.set(host, b);
+    }
+    return b;
+  };
+
+  for (const { host, cookie } of seed) {
+    const eq = cookie.indexOf('=');
+    if (eq > 0) {
+      bucket(host.toLowerCase()).set(
+        cookie.slice(0, eq).trim(),
+        cookie.slice(eq + 1).trim()
+      );
+    }
+  }
+
+  if (seed.length > 0) {
+    entLog(
+      `jar initialisé avec ${seed.length} cookie(s) : ${[...new Set(seed.map((s) => s.cookie.split('=')[0]))].join(', ')}`
+    );
+  }
+
   return async (url: string, options: any) => {
-    const response = await defaultPawnoteFetcher(url, options);
-    const text = await response.text();
-    entLog(`${options.method} ${redactSecrets(url)} → ${text.length} o`);
+    const host = (() => {
+      try {
+        return new URL(url).hostname.toLowerCase();
+      } catch {
+        return '';
+      }
+    })();
+
+    // Les cookies que pawnote demande explicitement d'abord, le jar ensuite :
+    // `ielang` et `appliMobile` ne doivent pas être écrasés par une valeur
+    // périmée, mais `CASTGC` n'est demandé par personne.
+    const pairs = parseCookieHeader(options?.headers?.Cookie ?? '');
+    const connus = jar.get(host);
+    if (connus) {
+      for (const [nom, valeur] of connus) if (!pairs.has(nom)) pairs.set(nom, valeur);
+    }
+    const envoi = [...pairs].map(([nom, valeur]) => `${nom}=${valeur}`);
+
+    const reponse = await suivreRedirections(url, options, envoi);
+
+    const recus = setCookieValues(reponse.headers);
+    for (const { nom, valeur, suppression } of recus) {
+      if (suppression) bucket(host).delete(nom);
+      else bucket(host).set(nom, valeur);
+    }
+
+    const corps = await reponse.text();
+    const statut = readStatus(reponse);
+
+    traceLog(
+      `${options?.method ?? 'GET'} ${redactSecrets(url)}\n` +
+        `    -> ${statut} envoi=[${[...pairs.keys()].join(',') || '-'}] ` +
+        `recu=[${recus.map((c) => c.nom).join(',') || '-'}] ${corps.length} o\n` +
+        `    <- ${redactSecrets(corps.slice(0, 400))}`
+    );
+    entLog(
+      `${options?.method ?? 'GET'} ${redactSecrets(url)} → ${statut} ` +
+        `${corps.length} o, cookies ${[...pairs.keys()].join(',') || '-'}` +
+        `${recus.length > 0 ? `, reçus ${recus.map((c) => c.nom).join(',')}` : ''}`
+    );
 
     return {
-      headers: response.headers,
-      text: () => Promise.resolve(text),
-      json: <T>() => Promise.resolve(JSON.parse(text) as T)
+      headers: reponse.headers,
+      text: () => Promise.resolve(corps),
+      json: <T>() => Promise.resolve(JSON.parse(corps) as T)
     } as any;
   };
+}
+
+/**
+ * pawnote ne type pas ses réponses comme des `Response` : `status` peut être
+ * absent selon la couche `fetch` utilisée. Le journal tolère ce cas.
+ */
+function readStatus(reponse: unknown): number | string {
+  const s = (reponse as { status?: unknown })?.status;
+  return typeof s === 'number' ? s : '?';
+}
+
+/** Nombre de redirections suivies à la main avant d'abandonner. */
+const MAX_REDIRECTIONS = 5;
+
+/**
+ * Suit les redirections que pawnote laisse à la bande.
+ *
+ * pawnote interroge les pages en `redirect: "manual"` — pour rester maître de
+ * la lecture de `Start({...})`. Sauf qu'une redirection ne contient aucun
+ * corps : pawnote reçoit une page vide, ne trouve pas `Start`, et échoue sur
+ * « Failed to extract session from HTML », un message qui ne dit rien du vrai
+ * problème.
+ *
+ * C'est exactement ce que renvoie un établissement dont la page mobile renvoie
+ * vers son portail, et ce que produit une session ENT déjà consommée.
+ *
+ * On suit donc la redirection nous-mêmes et on renvoie le corps de la page
+ * d'arrivée. pawnote n'a jamais besoin de l'URL : il ne lit que le corps, et
+ * l'URL qu'il a construite reste celle qu'il a demandée.
+ */
+async function suivreRedirections(
+  url: string,
+  options: any,
+  envoi: string[]
+): Promise<any> {
+  let cible = url;
+  let suivante: string | null = null;
+
+  for (let saut = 0; saut <= MAX_REDIRECTIONS; saut++) {
+    const reponse: any = await defaultPawnoteFetcher(cible, {
+      ...options,
+      headers: {
+        ...(options?.headers ?? {}),
+        ...(envoi.length > 0 ? { Cookie: envoi.join('; ') } : {})
+      }
+    });
+
+    const entete = reponse?.headers;
+    const location =
+      typeof entete?.get === 'function' ? entete.get('location') : null;
+    if (!location) return reponse;
+
+    suivante = new URL(location, cible).href;
+    traceLog(
+      `redirection ${saut + 1}/${MAX_REDIRECTIONS} : ${redactSecrets(cible)} ` +
+        `-> ${redactSecrets(suivante)}`
+    );
+    cible = suivante;
+  }
+
+  throw new Error(
+    `Trop de redirections (${MAX_REDIRECTIONS}) depuis ${redactSecrets(url)}`
+  );
+}
+
+/** Découpe un en-tête `Cookie: a=1; b=2`. */
+function parseCookieHeader(header: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const morceau of header.split(';')) {
+    const eq = morceau.indexOf('=');
+    if (eq <= 0) continue;
+    out.set(morceau.slice(0, eq).trim(), morceau.slice(eq + 1).trim());
+  }
+  return out;
+}
+
+/**
+ * Découpe un en-tête `set-cookie` pouvant contenir plusieurs cookies.
+ *
+ * Impossible de couper sur toutes les virgules : `expires=Thu, 01 Jan 1970`
+ * en contient une. On ne coupe donc que devant un `nom=` — ce qui n'arrive pas
+ * au milieu d'une date, où le groupe suivant ne contient aucun `=`.
+ */
+function splitSetCookie(header: string): string[] {
+  return header.split(/,(?=\s*[!#$%&'*+\-.^_`|~0-9A-Za-z]+=)/);
+}
+
+function setCookieValues(
+  headers: Record<string, string> | Headers
+): Array<{ nom: string; valeur: string; suppression: boolean }> {
+  let bruts: string[] = [];
+  if (headers && typeof (headers as Headers).getSetCookie === 'function') {
+    bruts = (headers as Headers).getSetCookie() as string[];
+  } else {
+    const brut =
+      typeof (headers as Headers).get === 'function'
+        ? (headers as Headers).get('set-cookie')
+        : (headers as Record<string, string>)['set-cookie'];
+    if (brut) bruts = splitSetCookie(brut);
+  }
+
+  const out: Array<{ nom: string; valeur: string; suppression: boolean }> = [];
+  for (const brut of bruts) {
+    const [paire, ...attributs] = brut.split(';');
+    const eq = paire.indexOf('=');
+    if (eq <= 0) continue;
+
+    const nom = paire.slice(0, eq).trim();
+    const valeur = paire.slice(eq + 1).trim();
+    // Une valeur vide ou `Max-Age=0` est un effacement, pas une définition :
+    // le cookie ne doit surtout pas être renvoyé ensuite.
+    const expire = attributs.some((a) => {
+      const t = a.trim().toLowerCase();
+      return t === 'max-age=0' || t === 'max-age=00';
+    });
+    out.push({ nom, valeur, suppression: valeur === '' || expire });
+  }
+  return out;
 }
 
 /** Ferme la fenêtre ENT. */
