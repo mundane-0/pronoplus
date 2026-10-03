@@ -264,6 +264,37 @@ export function openEntLoginWindow(
       }
     };
 
+    /**
+     * Note les liens vers le domaine Pronote proposés par la page courante.
+     *
+     * Certains portails ne ouvrent Pronote qu'après un clic dans une liste
+     * d'applications, et le domaine qui sert la page mobile n'est alors pas
+     * celui qu'on a ouvert. Sans cette trace, l'utilisateur doit deviner où
+     * cliquer.
+     */
+    const noterLiensVersPronote = Object.assign(async () => {
+      if (settled || entWindow.isDestroyed()) return;
+      try {
+        const vus: string = await entWindow.webContents.executeJavaScript(
+          `JSON.stringify(Array.from(new Set(Array.from(document.querySelectorAll('a[href]'))` +
+            `.map(a => a.href).filter(h => { try { return new URL(h).hostname === ${JSON.stringify(
+              pronoteHost
+            )}; } catch { return false; } }))))`
+        );
+        const liste: string[] = JSON.parse(vus || '[]');
+        for (const l of liste.slice(0, 6)) traceLog(`lien Pronote proposé : ${urlCourt(l)}`);
+        if (liste.length === 0 && !noterLiensVersPronote.deja) {
+          noterLiensVersPronote.deja = true;
+          traceLog(
+            `aucun lien Pronote sur ${urlCourt(entWindow.webContents.getURL())} : ` +
+              "il faut choisir l'application dans le portail"
+          );
+        }
+      } catch {
+        // Page en cours de chargement : sans importance.
+      }
+    }, { deja: false });
+
     /** Lit la page courante et cherche l'identité Pronote qu'elle porte. */
     const inspect = async () => {
       if (settled) return;
@@ -280,7 +311,12 @@ export function openEntLoginWindow(
       }
       if (!html) return;
 
-      if (/erreur-PRONOTE|pageserreur|AccesRefuse/i.test(html)) {
+      const ou = entWindow.webContents.getURL();
+      const surPronote = isPronoteUrl(ou, pronoteHost);
+
+      // La page d'erreur de Pronote ne se reconnaît que sur le domaine Pronote :
+      // un portail ENT peutlegitimement contenir ces mots.
+      if (surPronote && /erreur-PRONOTE|pageserreur|AccesRefuse/i.test(html)) {
         entLog("Pronote renvoie sa page d'erreur : l'ENT n'a pas créé de session");
         clearInterval(battement);
         finish({ success: false, reason: 'error-page' });
@@ -288,7 +324,14 @@ export function openEntLoginWindow(
       }
 
       const identity = identityFromStartCall(parseStartCall(html), 6);
-      if (!identity) return;
+      if (!identity) {
+        // Le portail de l'établissement ne sert pas l'appel Start tant qu'on
+        // n'a pas choisi l'application Pronote. On note alors les liens vers
+        // Pronote qu'il propose : ils disent où aller, et sans eux on ne peut
+        // que demander à l'utilisateur dedeviner.
+        if (!surPronote) await noterLiensVersPronote();
+        return;
+      }
 
       entLog(
         `identité ENT obtenue (espace ${identity.accountTypeID}, session ${identity.sessionID})`
@@ -328,10 +371,12 @@ export function openEntLoginWindow(
       // CAS. Recharger l'URL de base détruirait ce ticket.
     });
 
-    const onPage = (event: unknown, url: string) => {
+    const onPage = (_event: unknown, url: string) => {
       suivre('page', url);
-      if (!isPronoteUrl(url, pronoteHost)) return;
-      // Le contenu est injecté par Pronote après coup : on laisse passer.
+      // Toute page est inspectee, pas seulement le domaine Pronote : l'appel
+      // Start n'existe que dans une page Pronote, donc le lire partout ne peut
+      // pas produire de faux positif. Ne pas le faire empechait de suivre un
+      // portail ENT qui sert Pronote depuis un autre domaine.
       setTimeout(inspect, 600);
     };
 
