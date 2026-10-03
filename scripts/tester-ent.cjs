@@ -60,6 +60,11 @@ const pageStart = (base) => `<!doctype html><html><head><meta charset="utf-8"></
 <form action="${base}/pronote/appelfonction/6/915730/1"></form>
 </body></html>`;
 
+/** URL absolue d'une page du portail, sur l'hote « ENT ». */
+function racineEnt(p) {
+  return `http://${CAS}:${PORT}${p}`;
+}
+
 function demarrer() {
   return new Promise((resolve) => {
     const serveur = http.createServer((req, res) => {
@@ -72,10 +77,66 @@ function demarrer() {
         return res.end();
       }
 
-      // 2. Le portail EduConnect pose SON cookie, puis renvoie un ticket CAS.
-      if (p === '/cas/login') {
+      // 2a. Le portail ne ouvre pas Pronote : il propose cinq profils.
+      //     C'est ce menu qui bloquait le portail du departement observe.
+      // Un client qui presente deja le CASTGC — la preuve d'avoir passe par le
+      // portail — n'a pas a redire quel profil il est. C'est le cas du fetcher,
+      // qui rejoue la session obtenue par la fenetre ; la fenetre, elle, arrive
+      // sans cookie et doit choisir.
+      const dejaValide = /CASTGC=/.test(req.headers.cookie || '');
+
+      if (p === '/cas/login' && !url.searchParams.has('selection') && !dejaValide) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        return res.end(
+          `<html><body><form class="cas__wayf-form" method="get" action="${racineEnt('/cas/login')}">
+             <input type="radio" name="selection" value="EDU_parent_eleve"> Eleve ou parent avec Educonnect
+             <input type="radio" name="selection" value="AAA_enseignant"> Enseignant
+             <input type="radio" name="selection" value="ENT"> Invite
+             <input type="submit" name="submit" value="Confirm">
+           </form></body></html>`
+        );
+      }
+
+      // 2b. Profil « eleve » choisi : le portail pose SON cookie et renvoie
+      //     vers la selection de profil EduConnect.
+      if (p === '/cas/login' && dejaValide) {
+        res.writeHead(302, {
+          Location:
+            `http://${PRONOTE}:${PORT}/pronote/pronote-auth.html` +
+            `?p=daCas&ticket=ST-1234-abcdefgh`
+        });
+        return res.end();
+      }
+
+      if (p === '/cas/login' && url.searchParams.get('selection') === 'EDU_parent_eleve') {
         res.writeHead(302, {
           'Set-Cookie': 'ENT_SECRET=secret-du-portail; Path=/; HttpOnly',
+          Location: racineEnt('/educonnect/profil')
+        });
+        return res.end();
+      }
+
+      // 2c. Choix de profil EduConnect : un bouton, comme sur le vrai portail.
+      if (p === '/educonnect/profil') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        return res.end(
+          `<html><body>
+             <form method="post" action="${racineEnt('/educonnect/choix')}">
+               <input type="hidden" name="profil" value="eleve">
+             </form>
+             <button onclick="selectionProfil('eleve')">Eleve</button>
+             <button onclick="selectionProfil('responsable')">Responsable d'eleve</button>
+             <script>function selectionProfil(p){
+               document.forms[0].elements.profil.value = p;
+               document.forms[0].submit();
+             }</script>
+           </body></html>`
+        );
+      }
+
+      // 2d. Profil valide : EduConnect renvoie enfin un ticket CAS a Pronote.
+      if (p === '/educonnect/choix') {
+        res.writeHead(302, {
           Location:
             `http://${PRONOTE}:${PORT}/pronote/pronote-auth.html` +
             `?p=daCas&ticket=ST-1234-abcdefgh`
@@ -136,6 +197,18 @@ app.whenReady().then(async () => {
   const res = await openEntLoginWindow(null, depart, base);
   verifie('fenêtre ENT aboutie', res.success, `raison=${res.reason ?? '-'}`);
   verifie('aucune boucle', res.reason !== 'loop');
+
+  // Les deux etapes que l'application franchit seule. Sans elles, elle
+  // s'arrete sur le menu du portail, sans que rien ne l'explique.
+  const texte = require('node:fs').readFileSync(tracePath(), 'utf8');
+  verifie(
+    'menu de profil du portail franchi',
+    /menu de profil du portail franchi .*selection=EDU_parent_eleve/.test(texte)
+  );
+  verifie(
+    'profil EduConnect choisi',
+    /profil ÉduConnect choisi automatiquement/.test(texte)
+  );
   verifie('numeroJeton lu', res.identity?.username === 'A12', res.identity?.username ?? '-');
   verifie('cleJeton lu', res.identity?.token === 'cle-de-test-0123456789');
   verifie('espace Élève retenu', res.identity?.accountTypeID === 6, `${res.identity?.accountTypeID}`);

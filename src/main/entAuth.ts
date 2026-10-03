@@ -265,6 +265,107 @@ export function openEntLoginWindow(
     };
 
     /**
+     * Les portails ne vaquent pas tous directement a la page mobile. Sur le
+     * portail observe, la chaine fait trois etages :
+     *
+     *   cas.arsene76.fr/login?selection=EDU_parent_eleve&submit=Confirm
+     *     -> cas.arsene76.fr/clientredirect
+     *       -> educonnect.education.gouv.fr/idp/profile/... « Je selectionne mon profil »
+     *
+     * L'app ouvrait la racine du CAS et s'arrêtait sur un menu a cinq entrées,
+     * dont elle ne comprenait rien. On franchit donc ces deux etages.
+     *
+     * Ce ne sont pas des identifiants : ce sont des declarations de profil, que
+     * l'utilisateur ferait lui-meme en deux clics. Le mot de passe reste saisi
+     * a la main, par lui, dans la fenetre.
+     *
+     * Chaque page n'est franchie qu'une fois, et rien n'est fait si la page ne
+     * presente pas le menu attendu : au pire, on ne change rien a ce qui se
+     * passait.
+     */
+    const pagesFranchies = new Set<string>();
+
+    /**
+     * Un clic par page suffit, mais la meme URL peut revenir : deux chargements
+     * du menu EduConnect declenchent deux clics. On borne donc le nombre total
+     * d'actions, pour qu'aucune page ne puisse faire tourner la fenetre.
+     */
+    let franchissements = 0;
+    const MAX_FRANCHISSEMENTS = 5;
+
+    const franchir = async () => {
+      if (settled || entWindow.isDestroyed()) return;
+      if (franchissements >= MAX_FRANCHISSEMENTS) {
+        traceLog('nombre maximal de franchissements atteint');
+        return;
+      }
+      const ou = entWindow.webContents.getURL();
+      if (pagesFranchies.has(ou)) return;
+
+      // Menu de profil d'un CAS departemental : un simple GET, donc une URL.
+      const menu = await entWindow.webContents.executeJavaScript(
+        `(() => {
+          const f = Array.from(document.querySelectorAll('form'))
+            .find(f => f.querySelectorAll('input[name=selection]').length > 1);
+          if (!f) return '';
+          const wanted = /el[eè]ve|etudiant|étudiant|educonnect|edugouv|apprenant/i;
+          const bon = Array.from(f.querySelectorAll('input[name=selection]'))
+            .find(i => wanted.test(i.value || ''));
+          if (!bon) return '';
+          const methode = (f.method || 'get').toLowerCase();
+          const action = f.action || location.href;
+          if (methode === 'get') {
+            return 'GET ' + action + (action.includes('?') ? '&' : '?') +
+              'selection=' + encodeURIComponent(bon.value) + '&submit=Confirm';
+          }
+          bon.checked = true;
+          f.submit();
+          return 'POST ' + action + ' selection=' + bon.value;
+        })()`
+      );
+      if (typeof menu === 'string' && menu) {
+        pagesFranchies.add(ou);
+        franchissements++;
+        traceLog(`menu de profil du portail franchi : ${redactSecrets(menu)}`);
+        if (menu.startsWith('GET ')) {
+          entWindow.webContents.loadURL(menu.slice(4)).catch(() => undefined);
+        }
+        return;
+      }
+
+      // Choix de profil EduConnect : un bouton qui appelle selectionProfil('eleve').
+      // Pas de regexp ici : dans un gabarit de chaine, `\(` vaut `(` et `\s` vaut
+      // `s`, ce qui produit une regexp malformee et une erreur de syntaxe
+      // silencieuse dans la page. Le test porte donc sur le texte de l'appel,
+      // sans caractere a echapper.
+      const profil = await entWindow.webContents.executeJavaScript(
+        `(() => {
+          const b = Array.from(document.querySelectorAll('button,a,[onclick]'))
+            .find(e => /eleve/i.test(e.getAttribute('onclick') || ''));
+          if (!b) return '';
+          b.click();
+          return 'profil eleve';
+        })()`
+      );
+      if (typeof profil === 'string' && profil) {
+        pagesFranchies.add(ou);
+        franchissements++;
+        traceLog(`profil ÉduConnect choisi automatiquement : ${profil}`);
+        return;
+      }
+
+      // Ni menu, ni bouton : autant le dire, plutot que de laisser une fenetre
+      // immobile dont personne n'explique le silence.
+      if (!pagesNotees.has(ou)) {
+        pagesNotees.add(ou);
+        traceLog(`page non reconnue, en attente de l'utilisateur : ${urlCourt(ou)}`);
+      }
+    };
+
+    /** Pages deja signalees sans lien Pronote, pour ne pas se repeter. */
+    const pagesNotees = new Set<string>();
+
+    /**
      * Note les liens vers le domaine Pronote proposés par la page courante.
      *
      * Certains portails ne ouvrent Pronote qu'après un clic dans une liste
@@ -272,8 +373,9 @@ export function openEntLoginWindow(
      * celui qu'on a ouvert. Sans cette trace, l'utilisateur doit deviner où
      * cliquer.
      */
-    const noterLiensVersPronote = Object.assign(async () => {
+    const noterLiensVersPronote = async () => {
       if (settled || entWindow.isDestroyed()) return;
+      const ou = entWindow.webContents.getURL();
       try {
         const vus: string = await entWindow.webContents.executeJavaScript(
           `JSON.stringify(Array.from(new Set(Array.from(document.querySelectorAll('a[href]'))` +
@@ -282,18 +384,17 @@ export function openEntLoginWindow(
             )}; } catch { return false; } }))))`
         );
         const liste: string[] = JSON.parse(vus || '[]');
-        for (const l of liste.slice(0, 6)) traceLog(`lien Pronote proposé : ${urlCourt(l)}`);
-        if (liste.length === 0 && !noterLiensVersPronote.deja) {
-          noterLiensVersPronote.deja = true;
-          traceLog(
-            `aucun lien Pronote sur ${urlCourt(entWindow.webContents.getURL())} : ` +
-              "il faut choisir l'application dans le portail"
-          );
+        if (liste.length > 0) {
+          for (const l of liste.slice(0, 6)) traceLog(`lien Pronote proposé : ${urlCourt(l)}`);
+          return;
         }
+        if (pagesNotees.has(ou)) return;
+        pagesNotees.add(ou);
+        traceLog(`aucun lien Pronote sur ${urlCourt(ou)}`);
       } catch {
         // Page en cours de chargement : sans importance.
       }
-    }, { deja: false });
+    };
 
     /** Lit la page courante et cherche l'identité Pronote qu'elle porte. */
     const inspect = async () => {
@@ -329,7 +430,10 @@ export function openEntLoginWindow(
         // n'a pas choisi l'application Pronote. On note alors les liens vers
         // Pronote qu'il propose : ils disent où aller, et sans eux on ne peut
         // que demander à l'utilisateur dedeviner.
-        if (!surPronote) await noterLiensVersPronote();
+        if (!surPronote) {
+          await franchir();
+          await noterLiensVersPronote();
+        }
         return;
       }
 
