@@ -69,6 +69,10 @@ export function tracePath(): string | null {
  * tentative. Toute modification de `pronote.ts` ou de `entAuth.ts` change la
  * valeur, ce qui suffit à distinguer deux déploiements.
  */
+export function buildCourt(): string {
+  return traceBuild().split(' ').pop() ?? '?';
+}
+
 export function traceBuild(): string {
   try {
     const h = createHash('sha256');
@@ -699,6 +703,8 @@ export function createSessionFetcher(
     const corps = await reponse.text();
     const statut = readStatus(reponse);
 
+    diagnostiquerPageHtml(url, corps);
+
     traceLog(
       `${options?.method ?? 'GET'} ${redactSecrets(url)}\n` +
         `    -> ${statut} envoi=[${[...pairs.keys()].join(',') || '-'}] ` +
@@ -717,6 +723,33 @@ export function createSessionFetcher(
       json: <T>() => Promise.resolve(JSON.parse(corps) as T)
     } as any;
   };
+}
+
+/**
+ * Note ce qu'il y a à lire dans une page HTML de Pronote.
+ *
+ * pawnote cherche `Start({...})` dans le corps de la page mobile, et échoue
+ * sur « Failed to extract session from HTML » quand il ne le trouve pas. Ce
+ * message est un constat, pas un diagnostic : il ne dit pas si l'appel
+ * manque, s'il arrive trop tard dans la page, ou si le serveur a renvoyé
+ * autre chose — une page d'erreur, un portail, la coquille de l'application.
+ *
+ * Or c'est la seule information qui manque, et elle est gratuite : la réponse
+ * est déjà en mémoire. On note donc où en est l'appel, et, quand il n'y est
+ * pas, la fin de la page — c'est là qu'il se trouverait s'il existait.
+ */
+function diagnostiquerPageHtml(url: string, corps: string): void {
+  if (!/<html|<!doctype/i.test(corps.slice(0, 400))) return;
+
+  const ou = corps.search(/Start\s*\(\s*/);
+  traceLog(
+    `page HTML (${urlCourt(url)}) : ${corps.length} o, ` +
+      (ou < 0 ? 'aucun appel Start()' : `appel Start() à l'octet ${ou}`)
+  );
+
+  if (ou < 0) {
+    traceLog(`  fin de la page : ${redactSecrets(corps.slice(-400))}`);
+  }
 }
 
 /**

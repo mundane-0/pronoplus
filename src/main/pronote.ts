@@ -998,7 +998,8 @@ class PronoteManager {
     // diagnostic ne depende plus d'une suite de fichiers a ouvrir a la main.
     ipcMain.handle('diagnostic-ent', async () => ({
       chemin: tracePath(),
-      texte: traceRead()
+      texte: traceRead(),
+      build: traceBuild()
     }));
 
     // Connexion par QR code

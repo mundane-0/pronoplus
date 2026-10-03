@@ -35,6 +35,7 @@ const Login = () => {
   const [pinCode, setPinCode] = useState('');
   const [jeton, setJeton] = useState('');
   const [entBusy, setEntBusy] = useState(false);
+  const [build, setBuild] = useState<string>('');
 
   // Exemples d'URL Pronote
   const exampleUrls = [
@@ -83,6 +84,17 @@ const Login = () => {
       // sur disque, a l'emplacement indique ci-dessus.
     }
   };
+
+  // L'empreinte du build, affichee en bas de l'ecran de connexion. Quand une
+  // connexion echoue, la question n'est jamais « qu'est-ce qui a casse ? » mais
+  // « quelle copie tournait ? » — autant la repondre sans avoir a comparer des
+  // fichiers.
+  useEffect(() => {
+    (window as any).mainAPI
+      ?.diagnosticEnt?.()
+      .then((d: any) => setBuild(String(d?.build ?? '').split(' ').pop() ?? ''))
+      .catch(() => undefined);
+  }, []);
 
   const handleEntLogin = async () => {
     if (!url.trim()) {
@@ -493,6 +505,12 @@ const Login = () => {
                 Vos identifiants sont chiffrés et stockés localement sur votre ordinateur.
                 <br />
                 ProNote+ ne transmet jamais vos données à des serveurs tiers.
+                {build && (
+                  <>
+                    <br />
+                    <span className="opacity-60">version {build}</span>
+                  </>
+                )}
               </p>
             </div>
           </form>

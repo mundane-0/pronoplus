@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { dbManager } from './database';
 import { setupPronoteHandlers } from './pronote';
+import { traceBuild } from './entAuth';
 import { setupIPCHandlers } from './ipc';
 
 /**
@@ -34,7 +35,7 @@ class Main {
     // Initialiser la base de données
     await dbManager.init();
     
-    console.log('ProNote+ démarré avec succès');
+    console.log(`ProNote+ démarré — ${traceBuild()}`);
   }
 
   private createWindow() {
