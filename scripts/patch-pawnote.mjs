@@ -69,17 +69,6 @@
  *     (getNouveauChallenge). pawnote la dechiffrait puis supprimait un
  *     caractere sur deux, ce qui est rejete par Pronote 2026.
  *
- *  8. Charge utile de Authentification
- *     Le client officiel envoie genreConnexion / identifiant / pourENT
- *     / challenge, et aucun `espace`. pawnote envoyait connexion /
- *     challenge / espace.
- *
- *  9. Connexion par ENT
- *     pawnote imposait useENT: false et prefixait toujours l'identifiant
- *     par devant la cle AES. Pour un ENT, la cle vaut
- *     md5(sha256(motDePasse)) : sans identifiant. Et pourENT doit valoir
- *     true.
- *
  * Le patch echoue bruyamment si un bout de code attendu est absent ou
  * ambigu : le fichier de pawnote est minifie, on ne veut jamais ignorer
  * un divergence silencieusement.
@@ -175,12 +164,6 @@ const PATCHS = [
     1
   ],
   [
-    '8. Authentification : genreConnexion / identifiant / pourENT / challenge',
-    'const o=s.session.writePronoteFunctionPayload({donnees:{connexion:0,challenge:s.solvedChallenge.toUpperCase(),espace:s.session.instance.account_type_id}})',
-    'const o=s.session.writePronoteFunctionPayload({donnees:{genreConnexion:0,identifiant:void 0!==s.username?s.username:"",pourENT:!!s.useENT,ressourceInternet:"",nomRessource:"",genreRecherche:0,enConnexionAuto:!1,demandeConnexionAuto:!1,enConnexionAppliMobile:!1,demandeConnexionAppliMobile:!1,demandeConnexionAppliMobileJeton:!1,uuidAppliMobile:"",loginTokenSAV:"",challenge:s.solvedChallenge.toUpperCase(),connexion:0,espace:s.session.instance.account_type_id}})',
-    1
-  ],
-  [
     '8bis. transmission de l identifiant a la requete Authentification',
     'b(r,{solvedChallenge:A,cookies:c,session:l})',
     'b(r,{solvedChallenge:A,cookies:c,session:l,username:s.username,useENT:!!s.useENT})',
@@ -196,18 +179,6 @@ const PATCHS = [
     '7b. challenge (QR) : rechiffrement direct',
     ',g=Ve.util.createBuffer(y),v=m.decrypt(h.donnees.challenge,g,p);let A;try{const e=Ve.util.decodeUtf8(v),t=new Array(e.length);for(let s=0;s<e.length;s+=1)s%2==0&&t.push(e.charAt(s));let s=t.join("");s=""+s,s=Ve.util.encodeUtf8(s),A=m.encrypt(s,g,p)}catch(e){throw new Error("Unable to resolve the challenge. Please check your credentials.")}',
     ',g=Ve.util.createBuffer(y),v=h.donnees.challenge;let A;try{A=m.encrypt(Ve.util.encodeUtf8(""+v),g,p)}catch(e){throw new Error("Unable to resolve the challenge.")}',
-    1
-  ],
-  [
-    '9a. ENT : useENT configurable',
-    'session:l,useENT:!1,requestFirstMobileAuthentication:!1,reuseMobileAuthentication:!0,requestFromQRCode:!1,deviceUUID:s.deviceUUID});if(1===h.donnees.modeCompLog&&(s.username=s.username.toLowerCase()),1===h.donnees.modeCompMdp&&(s.token=s.token.toLowerCase())',
-    'session:l,useENT:!!s.useENT,requestFirstMobileAuthentication:!1,reuseMobileAuthentication:!1,requestFromQRCode:!1,deviceUUID:s.deviceUUID});if(!s.useENT&&1===h.donnees.modeCompLog&&(s.username=s.username.toLowerCase()),!s.useENT&&1===h.donnees.modeCompMdp&&(s.token=s.token.toLowerCase())',
-    1
-  ],
-  [
-    '9b. ENT : la cle AES ne porte pas l identifiant',
-    'y=s.username+f,g=Ve.util.createBuffer(y),v=h.donnees.challenge;let A;try{A=m.encrypt(Ve.util.encodeUtf8(""+v),g,p)}catch(e){throw new Error("Unable to resolve the challenge.")}const{data:N}=yield b(r,{solvedChallenge:A,cookies:c,session:l,username:s.username,useENT:!!s.useENT});if(!N.donnees.jetonConnexionAppliMobile)throw new Error("Unable to authenticate.");',
-    'y=(s.useENT?"":s.username)+f,g=Ve.util.createBuffer(y),v=h.donnees.challenge;let A;try{A=m.encrypt(Ve.util.encodeUtf8(""+v),g,p)}catch(e){throw new Error("Unable to resolve the challenge.")}const{data:N}=yield b(r,{solvedChallenge:A,cookies:c,session:l,username:s.username,useENT:!!s.useENT});if(s.requestFromQRCode&&!N.donnees.jetonConnexionAppliMobile)throw new Error("Unable to authenticate.");',
     1
   ],
   [

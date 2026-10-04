@@ -212,8 +212,17 @@ function decrireStart(page: Record<string, unknown> | null): string {
   return clefs
     .map((k) => {
       const v = (page as Record<string, unknown>)[k];
+      // Les nombres sont sans danger et ils sont tout : `a` et `g` designent
+      // deux espaces, et l'on ignore lequel Pronote veut. Les textes, eux,
+      // restent reduits a leur type : un jeton ne se mesure pas.
       const type =
-        typeof v === 'number' ? 'nombre' : typeof v === 'string' ? 'texte' : Array.isArray(v) ? 'liste' : typeof v;
+        typeof v === 'number'
+          ? String(v)
+          : typeof v === 'string'
+            ? 'texte'
+            : Array.isArray(v)
+              ? 'liste'
+              : typeof v;
       return `${k}:${type}`;
     })
     .join(', ');

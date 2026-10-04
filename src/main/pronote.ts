@@ -304,9 +304,12 @@ class PronoteManager {
         `authentification ENT sur ${instance.pronoteRootURL} (compte ${account.id})`
       );
 
-      // `useENT` n'est pas déclaré par pawnote : sans notre correctif, la clé
-      // AES serait calculée avec l'identifiant en préfixe et Pronote refuserait
-      // le jeton. `scripts/patch-pawnote.mjs` rend ce drapeau effectif.
+      // Rien n'est ajoute aux options de pawnote. Le chemin « jeton » tel que
+      // publie — identifiant en tete de la cle AES, charge utile de trois
+      // champs — est celui qui aboutit sur toutes les instances, y compris via
+      // le flux « QR code », qui recycle exactement les memes deux valeurs
+      // (`login` et `jeton`). Les correctifs 8 et 9 y avaient substitue une
+      // formule et une charge utile inventees ; le serveur les refusait.
       const session = await authenticateToken(
         instance.pronoteRootURL || baseUrl,
         {
@@ -314,9 +317,8 @@ class PronoteManager {
           token: entSession.token,
           accountTypeID: account.id,
           deviceUUID: randomUUID(),
-          fetcher,
-          useENT: true
-        } as any
+          fetcher
+        }
       );
 
       this.currentSession = session;
