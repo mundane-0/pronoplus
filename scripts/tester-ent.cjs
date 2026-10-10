@@ -193,21 +193,6 @@ function demarrer() {
         return res.end(pageStart(racine()));
       }
 
-      // Reponse JSON d'`appelfonction`, comme le vrai Pronote. C'est elle que
-      // pawnote lit champ par champ ; le journal en note les noms de champs,
-      // sans leurs valeurs.
-      if (/^\/pronote\/appelfonction\//.test(p)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(
-          JSON.stringify({
-            id: 'Authentification',
-            session: 915730,
-            dataSec: { data: { Acces: 0, cle: 'chiffre-local', jetonConnexionAppliMobile: 'jeton-local' } },
-            nom: 'Authentification'
-          })
-        );
-      }
-
       // Un cookie posé par le portail lui-même ne doit JAMAIS atteindre
       // Pronote : le renvoyer reviendrait à donner à l'établissement un
       // identifiant d'un autre service.
@@ -341,14 +326,6 @@ app.whenReady().then(async () => {
   verifie('ielang toujours présent', dernier.includes('ielang'), dernier);
   verifie('le serveur a bien reçu la requête', corps.length >= 0, `${corps.length} o`);
 
-  // Les noms de champs de la reponse doivent etre journalises : sans eux, un
-  // refus du serveur ne se distingue pas d'un champ manquant.
-  const texteApres = fs.readFileSync(journal, 'utf8');
-  verifie(
-    'noms de champs de la reponse notes',
-    /appelfonction\/\d+\/\d+ → données : Acces, cle, jetonConnexionAppliMobile/.test(texteApres),
-    (texteApres.match(/→ données :.*/) ?? ['(rien)'])[0]
-  );
 
   if (journal) {
     const texte = fs.readFileSync(journal, 'utf8');

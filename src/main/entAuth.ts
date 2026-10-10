@@ -196,37 +196,6 @@ export function parseStartCall(html: string): Record<string, unknown> | null {
   }
 }
 
-/**
- * Décrit l'objet `Start({...})` sans jamais en recopier les valeurs.
- *
- * `numeroJeton` et `cleJeton` sont des valeurs d'authentification : elles ne
- * doivent pas être écrites sur disque, ni journalisées, ni même leur taille
- * exacte. En revanche, savoir *quelles* clés l'ENT livre, et de quel type,
- *change tout : c'est la différence entre « le portail donne bien le jeton » et
- * « le portail donne une session, et le jeton attendra une autre page ».
- */
-function decrireStart(page: Record<string, unknown> | null): string {
-  if (!page) return 'aucun objet Start()';
-  const clefs = Object.keys(page).sort();
-  if (clefs.length === 0) return 'objet Start() vide';
-  return clefs
-    .map((k) => {
-      const v = (page as Record<string, unknown>)[k];
-      // Les nombres sont sans danger et ils sont tout : `a` et `g` designent
-      // deux espaces, et l'on ignore lequel Pronote veut. Les textes, eux,
-      // restent reduits a leur type : un jeton ne se mesure pas.
-      const type =
-        typeof v === 'number'
-          ? String(v)
-          : typeof v === 'string'
-            ? 'texte'
-            : Array.isArray(v)
-              ? 'liste'
-              : typeof v;
-      return `${k}:${type}`;
-    })
-    .join(', ');
-}
 
 /** Déduit une identité Pronote utilisable depuis l'objet `Start({...})`. */
 export function identityFromStartCall(
@@ -335,8 +304,8 @@ export function openEntLoginWindow(
      * Les portails ne vaquent pas tous directement a la page mobile. Sur le
      * portail observe, la chaine fait trois etages :
      *
-     *   cas.arsene76.fr/login?selection=EDU_parent_eleve&submit=Confirm
-     *     -> cas.arsene76.fr/clientredirect
+     *   <portail ENT>/login?selection=EDU_parent_eleve&submit=Confirm
+     *     -> <portail ENT>/clientredirect
      *       -> educonnect.education.gouv.fr/idp/profile/... « Je selectionne mon profil »
      *
      * L'app ouvrait la racine du CAS et s'arrêtait sur un menu a cinq entrées,
@@ -514,9 +483,7 @@ export function openEntLoginWindow(
         return;
       }
 
-      const objetStart = parseStartCall(html);
-      if (objetStart) traceLog(`Start() livré : ${decrireStart(objetStart)}`);
-      const identity = identityFromStartCall(objetStart, 6);
+      const identity = identityFromStartCall(parseStartCall(html), 6);
       if (!identity) {
         // Le portail de l'établissement ne sert pas l'appel Start tant qu'on
         // n'a pas choisi l'application Pronote. On note alors les liens vers
@@ -737,8 +704,6 @@ export function createSessionFetcher(
     const corps = await reponse.text();
     const statut = readStatus(reponse);
 
-    diagnostiquerPageHtml(url, corps);
-    diagnostiquerDonnees(url, corps);
 
     traceLog(
       `${options?.method ?? 'GET'} ${redactSecrets(url)}\n` +
@@ -760,63 +725,7 @@ export function createSessionFetcher(
   };
 }
 
-/**
- * Note ce qu'il y a à lire dans une page HTML de Pronote.
- *
- * pawnote cherche `Start({...})` dans le corps de la page mobile, et échoue
- * sur « Failed to extract session from HTML » quand il ne le trouve pas. Ce
- * message est un constat, pas un diagnostic : il ne dit pas si l'appel
- * manque, s'il arrive trop tard dans la page, ou si le serveur a renvoyé
- * autre chose — une page d'erreur, un portail, la coquille de l'application.
- *
- * Or c'est la seule information qui manque, et elle est gratuite : la réponse
- * est déjà en mémoire. On note donc où en est l'appel, et, quand il n'y est
- * pas, la fin de la page — c'est là qu'il se trouverait s'il existait.
- */
-function diagnostiquerPageHtml(url: string, corps: string): void {
-  if (!/<html|<!doctype/i.test(corps.slice(0, 400))) return;
 
-  const ou = corps.search(/Start\s*\(\s*/);
-  traceLog(
-    `page HTML (${urlCourt(url)}) : ${corps.length} o, ` +
-      (ou < 0 ? 'aucun appel Start()' : `appel Start() à l'octet ${ou}`)
-  );
-
-  if (ou < 0) {
-    traceLog(`  fin de la page : ${redactSecrets(corps.slice(-400))}`);
-  }
-}
-
-/**
- * Note les clés de `donnees` dans une réponse `appelfonction`.
- *
- * pawnote lit cette réponse champ par champ — il attend de `Authentification`
- * une clé AES chiffrée et un jeton applicatif, et échoue si l'un manque, par
- * une message qui ne dit rien de la réponse. Les NOMS des clés, eux, ne sont
- * pas secrets et suffisent à voir ce que le serveur a renvoyé et ce qui
- * manque. Aucune valeur n'est écrite.
- */
-function diagnostiquerDonnees(url: string, corps: string): void {
-  if (!/\/appelfonction\//.test(url)) return;
-  let donnees: Record<string, unknown>;
-  try {
-    const o = JSON.parse(corps);
-    donnees = (o?.dataSec?.data ?? o?.donnees) as Record<string, unknown>;
-  } catch {
-    return;
-  }
-  if (!donnees || typeof donnees !== 'object') return;
-
-  const nom = (() => {
-    const m = /appelfonction\/\d+\/\d+/.exec(url);
-    return m ? m[0] : 'appelfonction';
-  })();
-  const cles = Object.keys(donnees).sort();
-  traceLog(
-    `${nom} → données : ` +
-      (cles.length === 0 ? 'aucune' : cles.join(', '))
-  );
-}
 
 /**
  * pawnote ne type pas ses réponses comme des `Response` : `status` peut être
